@@ -1,7 +1,12 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:http/http.dart' as http;
 import 'package:boabat_alarabi/core/plate_engine.dart';
+
+// Render Cloud Backend URL
+const String kBackendBaseUrl = 'https://boabat-alarabi.onrender.com';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -53,85 +58,105 @@ class MainNavigationScreen extends StatefulWidget {
 
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
   int _currentIndex = 1; // Default to Center tab (الفحص / Scan)
+  bool _isConnected = false;
+  int _totalWantedInDb = 56481;
+  String _activeDatasetName = 'قاعدة المطلوبين الرئيسية (Render Cloud)';
 
-  final List<Map<String, dynamic>> _scans = [
-    {
-      'id': '1',
-      'letters': 'ا س ب',
-      'numbers': '2175',
-      'display': 'ا س ب 2175',
-      'canonical': 'اسب2175',
-      'wanted': true,
-      'type': 'شاحنة',
-      'bank': 'طلال السديس',
-      'vin': 'KLUKH2T41PK000154',
-      'time': '12:20 م',
-      'gps': '24.7136, 46.6753'
-    },
-    {
-      'id': '2',
-      'letters': 'ر ك د',
-      'numbers': '9678',
-      'display': 'ر ك د 9678',
-      'canonical': 'ركد9678',
-      'wanted': true,
-      'type': 'Taurus',
-      'bank': 'اشرف جمال',
-      'vin': '-',
-      'time': '12:21 م',
-      'gps': '24.7140, 46.6758'
-    },
-    {
-      'id': '3',
-      'letters': 'د ا د',
-      'numbers': '2524',
-      'display': 'د ا د 2524',
-      'canonical': 'داد2524',
-      'wanted': false,
-      'type': '-',
-      'bank': '-',
-      'vin': '-',
-      'time': '12:22 م',
-      'gps': '24.7145, 46.6762'
-    },
-    {
-      'id': '4',
-      'letters': 'د ب ك',
-      'numbers': '2121',
-      'display': 'د ب ك 2121',
-      'canonical': 'دبك2121',
-      'wanted': false,
-      'type': '-',
-      'bank': '-',
-      'vin': '-',
-      'time': '12:23 م',
-      'gps': '24.7150, 46.6765'
-    },
-  ];
+  final List<Map<String, dynamic>> _scans = [];
 
-  void _addScan(String phrase) {
+  @override
+  void initState() {
+    super.initState();
+    _fetchBackendHealth();
+  }
+
+  Future<void> _fetchBackendHealth() async {
+    try {
+      final res = await http.get(Uri.parse('$kBackendBaseUrl/api/v1/health')).timeout(const Duration(seconds: 10));
+      if (res.statusCode == 200) {
+        final data = json.decode(utf8.decode(res.bodyBytes));
+        setState(() {
+          _isConnected = true;
+          _totalWantedInDb = data['wantedPlatesCount'] ?? 56481;
+        });
+      }
+    } catch (e) {
+      debugPrint('Cloud backend sync offline or loading: $e');
+    }
+  }
+
+  Future<void> _addScan(String phrase) async {
     final candidates = FlutterPlateEngine.parse(phrase);
-    if (candidates.isNotEmpty) {
-      final c = candidates.first;
-      final isWanted = (c.canonicalPlate == 'اسب2175' || c.canonicalPlate == 'ركد9678');
-      setState(() {
-        _scans.insert(0, {
-          'id': DateTime.now().millisecondsSinceEpoch.toString(),
+    if (candidates.isEmpty) return;
+
+    final c = candidates.first;
+    bool isWanted = false;
+    Map<String, dynamic> vehicleInfo = {};
+
+    // 1. Check against Render Cloud Backend API
+    try {
+      final checkRes = await http.post(
+        Uri.parse('$kBackendBaseUrl/api/v1/plates/check'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'plate': c.canonicalPlate}),
+      ).timeout(const Duration(seconds: 5));
+
+      if (checkRes.statusCode == 200) {
+        final checkData = json.decode(utf8.decode(checkRes.bodyBytes));
+        isWanted = checkData['isWanted'] == true;
+        if (isWanted && checkData['vehicle'] != null) {
+          vehicleInfo = Map<String, dynamic>.from(checkData['vehicle']);
+        }
+      }
+    } catch (e) {
+      // Offline fallback check for demo plates
+      isWanted = (c.canonicalPlate == 'اسب2175' || c.canonicalPlate == 'اسب2186' || c.canonicalPlate == 'ركد9678');
+      if (isWanted) {
+        vehicleInfo = {
+          'vehicleType': c.canonicalPlate == 'اسب2175' ? 'شاحنة' : 'Taurus',
+          'bank': c.canonicalPlate == 'اسب2175' ? 'طلال السديس' : 'اشرف جمال',
+          'vin': c.canonicalPlate == 'اسب2175' ? 'KLUKH2T41PK000154' : '-',
+        };
+      }
+    }
+
+    final newScan = {
+      'id': DateTime.now().millisecondsSinceEpoch.toString(),
+      'letters': c.letters,
+      'numbers': c.numbers,
+      'display': c.plateDisplay,
+      'canonical': c.canonicalPlate,
+      'wanted': isWanted,
+      'type': vehicleInfo['vehicleType'] ?? '-',
+      'bank': vehicleInfo['bank'] ?? '-',
+      'vin': vehicleInfo['vin'] ?? '-',
+      'time': 'الآن',
+      'gps': '24.7136, 46.6753'
+    };
+
+    // Save to Render Backend
+    try {
+      http.post(
+        Uri.parse('$kBackendBaseUrl/api/v1/scans'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
           'letters': c.letters,
           'numbers': c.numbers,
-          'display': c.plateDisplay,
-          'canonical': c.canonicalPlate,
-          'wanted': isWanted,
-          'type': isWanted ? (c.canonicalPlate == 'اسب2175' ? 'شاحنة' : 'Taurus') : '-',
-          'bank': isWanted ? (c.canonicalPlate == 'اسب2175' ? 'طلال السديس' : 'اشرف جمال') : '-',
-          'vin': isWanted ? (c.canonicalPlate == 'اسب2175' ? 'KLUKH2T41PK000154' : '-') : '-',
-          'time': 'الآن',
-          'gps': '24.7136, 46.6753'
-        });
-      });
-      if (isWanted) {
-        _showWantedDialog(_scans.first);
-      }
+          'canonicalPlate': c.canonicalPlate,
+          'plateDisplay': c.plateDisplay,
+          'rawTranscript': phrase,
+          'latitude': 24.7136,
+          'longitude': 46.6753,
+        }),
+      );
+    } catch (_) {}
+
+    setState(() {
+      _scans.insert(0, newScan);
+    });
+
+    if (isWanted) {
+      _showWantedDialog(newScan);
     }
   }
 
@@ -172,8 +197,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             const SizedBox(height: 16),
             Text('النوع: ${scan['type']}', style: const TextStyle(fontWeight: FontWeight.bold)),
             Text('الجهة / البنك: ${scan['bank']}', style: const TextStyle(fontWeight: FontWeight.bold)),
-            Text('الهيكل: ${scan['vin']}'),
-            Text('الموقع: ${scan['gps']}'),
+            Text('الهيكل (VIN): ${scan['vin']}'),
+            Text('الموقع (GPS): ${scan['gps']}'),
           ],
         ),
         actions: [
@@ -196,7 +221,13 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
     final screens = [
       WantedScreen(scans: _scans.where((s) => s['wanted'] == true).toList()),
-      ScanMainScreen(scans: _scans, onAddScan: _addScan),
+      ScanMainScreen(
+        scans: _scans,
+        onAddScan: _addScan,
+        isConnected: _isConnected,
+        totalWantedInDb: _totalWantedInDb,
+        datasetName: _activeDatasetName,
+      ),
       const HistoryAndDatasetsScreen(),
     ];
 
@@ -248,8 +279,18 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 class ScanMainScreen extends StatefulWidget {
   final List<Map<String, dynamic>> scans;
   final Function(String) onAddScan;
+  final bool isConnected;
+  final int totalWantedInDb;
+  final String datasetName;
 
-  const ScanMainScreen({super.key, required this.scans, required this.onAddScan});
+  const ScanMainScreen({
+    super.key,
+    required this.scans,
+    required this.onAddScan,
+    required this.isConnected,
+    required this.totalWantedInDb,
+    required this.datasetName,
+  });
 
   @override
   State<ScanMainScreen> createState() => _ScanMainScreenState();
@@ -257,6 +298,7 @@ class ScanMainScreen extends StatefulWidget {
 
 class _ScanMainScreenState extends State<ScanMainScreen> {
   bool _isListening = false;
+  final TextEditingController _voiceSimController = TextEditingController();
 
   @override
   Widget build(BuildContext context) {
@@ -281,21 +323,43 @@ class _ScanMainScreenState extends State<ScanMainScreen> {
                         border: Border.all(color: const Color(0xFF26E6C8)),
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      child: const Icon(Icons.view_in_ar, color: Color(0xFF26E6C8)),
+                      child: const Icon(Icons.cloud_done, color: Color(0xFF26E6C8)),
                     ),
                     const SizedBox(width: 10),
-                    const Column(
+                    Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('بوابة العربي', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                        Text('قاعدة المطلوبين: 56,481 سيارة', style: TextStyle(fontSize: 11, color: Color(0xFF26E6C8))),
+                        const Text('بوابة العربي', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                        Text(
+                          'سحابة Render: ${widget.totalWantedInDb} سيارة',
+                          style: const TextStyle(fontSize: 11, color: Color(0xFF26E6C8)),
+                        ),
                       ],
                     ),
                   ],
                 ),
-                IconButton(
-                  icon: const Icon(Icons.logout, color: Color(0xFF8B9BB4)),
-                  onPressed: () {},
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: widget.isConnected ? const Color(0x202ED573) : const Color(0x20FF4757),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 4,
+                        backgroundColor: widget.isConnected ? const Color(0xFF2ED573) : const Color(0xFFFF4757),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        widget.isConnected ? 'متصل' : 'سحابي',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: widget.isConnected ? const Color(0xFF2ED573) : const Color(0xFFFF4757),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -338,7 +402,7 @@ class _ScanMainScreenState extends State<ScanMainScreen> {
                   ),
                 ),
                 const SizedBox(height: 10),
-                // Chips
+                // Quick Test Presets
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Row(
@@ -358,9 +422,15 @@ class _ScanMainScreenState extends State<ScanMainScreen> {
                       ),
                       const SizedBox(width: 8),
                       ActionChip(
-                        label: const Text('🗣 تجربة: اسب 2175', style: TextStyle(fontSize: 11, color: Color(0xFFFF4757))),
+                        label: const Text('🚨 اسب 2175 (مطلوبة)', style: TextStyle(fontSize: 11, color: Color(0xFFFF4757))),
                         backgroundColor: const Color(0xFF182338),
                         onPressed: () => widget.onAddScan('اسب 2175'),
+                      ),
+                      const SizedBox(width: 8),
+                      ActionChip(
+                        label: const Text('🚗 ا هـ ر 2753', style: TextStyle(fontSize: 11, color: Color(0xFF2ED573))),
+                        backgroundColor: const Color(0xFF182338),
+                        onPressed: () => widget.onAddScan('ألف هاء راء 2753'),
                       ),
                     ],
                   ),
@@ -433,27 +503,29 @@ class _ScanMainScreenState extends State<ScanMainScreen> {
                     ),
                   ),
                   Expanded(
-                    child: ListView.builder(
-                      itemCount: widget.scans.length,
-                      itemBuilder: (context, idx) {
-                        final scan = widget.scans[idx];
-                        final isWanted = scan['wanted'] == true;
-                        return Container(
-                          decoration: BoxDecoration(
-                            color: isWanted ? const Color(0x1AFF4757) : Colors.transparent,
-                            border: const Border(bottom: BorderSide(color: Color(0x10FFFFFF))),
+                    child: widget.scans.isEmpty
+                        ? const Center(child: Text('اضغط على الميكروفون لبدء الفحص الصوتي'))
+                        : ListView.builder(
+                            itemCount: widget.scans.length,
+                            itemBuilder: (context, idx) {
+                              final scan = widget.scans[idx];
+                              final isWanted = scan['wanted'] == true;
+                              return Container(
+                                decoration: BoxDecoration(
+                                  color: isWanted ? const Color(0x1AFF4757) : Colors.transparent,
+                                  border: const Border(bottom: BorderSide(color: Color(0x10FFFFFF))),
+                                ),
+                                child: ListTile(
+                                  leading: Text('${widget.scans.length - idx}', style: const TextStyle(color: Color(0xFF8B9BB4))),
+                                  title: Text(scan['letters'], textAlign: TextAlign.center, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                                  subtitle: Text(scan['numbers'], textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFF26E6C8), fontSize: 18, fontWeight: FontWeight.bold)),
+                                  trailing: isWanted
+                                      ? const Icon(Icons.warning_amber_rounded, color: Color(0xFFFF4757))
+                                      : const Icon(Icons.check_circle, color: Color(0xFF2ED573)),
+                                ),
+                              );
+                            },
                           ),
-                          child: ListTile(
-                            leading: Text('${widget.scans.length - idx}', style: const TextStyle(color: Color(0xFF8B9BB4))),
-                            title: Text(scan['letters'], textAlign: TextAlign.center, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                            subtitle: Text(scan['numbers'], textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFF26E6C8), fontSize: 18, fontWeight: FontWeight.bold)),
-                            trailing: isWanted
-                                ? const Icon(Icons.warning_amber_rounded, color: Color(0xFFFF4757))
-                                : const Icon(Icons.check_circle, color: Color(0xFF2ED573)),
-                          ),
-                        );
-                      },
-                    ),
                   ),
                 ],
               ),
@@ -583,9 +655,9 @@ class HistoryAndDatasetsScreen extends StatelessWidget {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('جلسة اليوم (نشطة)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                              Text('جلسة العمل الحالية (مربوطة بالسحابة)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                               SizedBox(height: 8),
-                              Text('الإجمالي: 4 | المطلوبة: 2 | السليمة: 2', style: TextStyle(color: Color(0xFF8B9BB4))),
+                              Text('الخادم: https://boabat-alarabi.onrender.com', style: TextStyle(color: Color(0xFF26E6C8), fontSize: 12)),
                             ],
                           ),
                         ),
@@ -607,10 +679,10 @@ class HistoryAndDatasetsScreen extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Text('⭐ القائمة المفعلة حاليًا', style: TextStyle(color: Color(0xFF26E6C8), fontWeight: FontWeight.bold)),
+                            Text('⭐ القائمة المفعلة على السحابة', style: TextStyle(color: Color(0xFF26E6C8), fontWeight: FontWeight.bold)),
                             SizedBox(height: 8),
                             Text('قاعدة المطلوبين الرئيسية (file.xlsx)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                            Text('56,481 سيارة مفهرسة | 2 شيتات (تشييك، تسجيل)', style: TextStyle(color: Color(0xFF8B9BB4))),
+                            Text('56,481 سيارة مفهرسة بالذاكرة | 2 شيتات (تشييك، تسجيل)', style: TextStyle(color: Color(0xFF8B9BB4))),
                           ],
                         ),
                       ),
