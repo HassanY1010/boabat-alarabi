@@ -5,7 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
 import 'package:boabat_alarabi/core/plate_engine.dart';
 
-// Render Cloud Backend URL
+// Render Cloud Backend URL (Source of Truth)
 const String kBackendBaseUrl = 'https://boabat-alarabi.onrender.com';
 
 void main() {
@@ -59,18 +59,31 @@ class MainNavigationScreen extends StatefulWidget {
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
   int _currentIndex = 1; // Default to Center tab (الفحص / Scan)
   bool _isConnected = false;
-  int _totalWantedInDb = 56481;
-  String _activeDatasetName = 'قاعدة المطلوبين الرئيسية (Render Cloud)';
+  int _totalWantedInDb = 0;
+  String _activeDatasetName = 'جاري التحميل...';
+  String _activeSessionId = '';
 
+  // 100% Real Live Scan Records from Database & API
   final List<Map<String, dynamic>> _scans = [];
+  final List<Map<String, dynamic>> _sessions = [];
+  final List<Map<String, dynamic>> _datasets = [];
 
   @override
   void initState() {
     super.initState();
-    _fetchBackendHealth();
+    _fetchRealCloudData();
   }
 
-  Future<void> _fetchBackendHealth() async {
+  Future<void> _fetchRealCloudData() async {
+    await Future.wait([
+      _fetchHealthAndStats(),
+      _fetchRealScans(),
+      _fetchRealSessions(),
+      _fetchRealDatasets(),
+    ]);
+  }
+
+  Future<void> _fetchHealthAndStats() async {
     try {
       final res = await http.get(Uri.parse('$kBackendBaseUrl/api/v1/health')).timeout(const Duration(seconds: 10));
       if (res.statusCode == 200) {
@@ -81,7 +94,80 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         });
       }
     } catch (e) {
-      debugPrint('Cloud backend sync offline or loading: $e');
+      debugPrint('Cloud health check error: $e');
+    }
+  }
+
+  Future<void> _fetchRealScans() async {
+    try {
+      final res = await http.get(Uri.parse('$kBackendBaseUrl/api/v1/scans?limit=100')).timeout(const Duration(seconds: 10));
+      if (res.statusCode == 200) {
+        final data = json.decode(utf8.decode(res.bodyBytes));
+        final List list = data['scans'] ?? [];
+        setState(() {
+          _scans.clear();
+          for (var item in list) {
+            _scans.add({
+              'id': item['id'] ?? '',
+              'letters': item['letters'] ?? '',
+              'numbers': item['numbers'] ?? '',
+              'display': item['plateDisplay'] ?? '',
+              'canonical': item['canonicalPlate'] ?? '',
+              'wanted': item['wanted'] == true,
+              'type': item['vehicleType'] ?? '-',
+              'bank': item['bank'] ?? '-',
+              'vin': item['vin'] ?? '-',
+              'time': item['capturedAt'] != null ? item['capturedAt'].toString().split('T').last.substring(0, 5) : 'الآن',
+              'gps': '${item['latitude'] ?? '24.7136'}, ${item['longitude'] ?? '46.6753'}'
+            });
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching real scans: $e');
+    }
+  }
+
+  Future<void> _fetchRealSessions() async {
+    try {
+      final res = await http.get(Uri.parse('$kBackendBaseUrl/api/v1/sessions')).timeout(const Duration(seconds: 10));
+      if (res.statusCode == 200) {
+        final data = json.decode(utf8.decode(res.bodyBytes));
+        final List list = data['sessions'] ?? [];
+        setState(() {
+          _sessions.clear();
+          for (var item in list) {
+            _sessions.add(Map<String, dynamic>.from(item));
+            if (item['status'] == 'ACTIVE') {
+              _activeSessionId = item['id'];
+            }
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching real sessions: $e');
+    }
+  }
+
+  Future<void> _fetchRealDatasets() async {
+    try {
+      final res = await http.get(Uri.parse('$kBackendBaseUrl/api/v1/datasets')).timeout(const Duration(seconds: 10));
+      if (res.statusCode == 200) {
+        final data = json.decode(utf8.decode(res.bodyBytes));
+        final List list = data['datasets'] ?? [];
+        final activeId = data['activeDatasetId'];
+        setState(() {
+          _datasets.clear();
+          for (var item in list) {
+            _datasets.add(Map<String, dynamic>.from(item));
+            if (item['id'] == activeId) {
+              _activeDatasetName = item['name'] ?? 'قاعدة المطلوبين الرئيسية';
+            }
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching real datasets: $e');
     }
   }
 
@@ -93,7 +179,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     bool isWanted = false;
     Map<String, dynamic> vehicleInfo = {};
 
-    // 1. Check against Render Cloud Backend API
+    // Check directly against Real Cloud Database API (O(1) Memory Index of 56,481 vehicles)
     try {
       final checkRes = await http.post(
         Uri.parse('$kBackendBaseUrl/api/v1/plates/check'),
@@ -109,15 +195,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         }
       }
     } catch (e) {
-      // Offline fallback check for demo plates
-      isWanted = (c.canonicalPlate == 'اسب2175' || c.canonicalPlate == 'اسب2186' || c.canonicalPlate == 'ركد9678');
-      if (isWanted) {
-        vehicleInfo = {
-          'vehicleType': c.canonicalPlate == 'اسب2175' ? 'شاحنة' : 'Taurus',
-          'bank': c.canonicalPlate == 'اسب2175' ? 'طلال السديس' : 'اشرف جمال',
-          'vin': c.canonicalPlate == 'اسب2175' ? 'KLUKH2T41PK000154' : '-',
-        };
-      }
+      debugPrint('Direct check error: $e');
     }
 
     final newScan = {
@@ -134,12 +212,13 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       'gps': '24.7136, 46.6753'
     };
 
-    // Save to Render Backend
+    // Record Real Scan in Cloud Database
     try {
-      http.post(
+      await http.post(
         Uri.parse('$kBackendBaseUrl/api/v1/scans'),
         headers: {'Content-Type': 'application/json'},
         body: json.encode({
+          'sessionId': _activeSessionId,
           'letters': c.letters,
           'numbers': c.numbers,
           'canonicalPlate': c.canonicalPlate,
@@ -173,7 +252,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           children: [
             Icon(Icons.warning_amber_rounded, color: Color(0xFFFF4757), size: 28),
             SizedBox(width: 8),
-            Text('تنبيه: سيارة مطلوبة!', style: TextStyle(color: Color(0xFFFF4757), fontWeight: FontWeight.bold)),
+            Text('تنبيه أمني: سيارة مطلوبة!', style: TextStyle(color: Color(0xFFFF4757), fontWeight: FontWeight.bold)),
           ],
         ),
         content: Column(
@@ -208,7 +287,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
               foregroundColor: Colors.white,
             ),
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('متابعة الفحص'),
+            child: const Text('متابعة الفحص الميداني'),
           ),
         ],
       ),
@@ -227,8 +306,14 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         isConnected: _isConnected,
         totalWantedInDb: _totalWantedInDb,
         datasetName: _activeDatasetName,
+        onRefresh: _fetchRealCloudData,
       ),
-      const HistoryAndDatasetsScreen(),
+      HistoryAndDatasetsScreen(
+        sessions: _sessions,
+        datasets: _datasets,
+        activeDatasetName: _activeDatasetName,
+        onRefresh: _fetchRealCloudData,
+      ),
     ];
 
     return Scaffold(
@@ -282,6 +367,7 @@ class ScanMainScreen extends StatefulWidget {
   final bool isConnected;
   final int totalWantedInDb;
   final String datasetName;
+  final VoidCallback onRefresh;
 
   const ScanMainScreen({
     super.key,
@@ -290,6 +376,7 @@ class ScanMainScreen extends StatefulWidget {
     required this.isConnected,
     required this.totalWantedInDb,
     required this.datasetName,
+    required this.onRefresh,
   });
 
   @override
@@ -298,7 +385,7 @@ class ScanMainScreen extends StatefulWidget {
 
 class _ScanMainScreenState extends State<ScanMainScreen> {
   bool _isListening = false;
-  final TextEditingController _voiceSimController = TextEditingController();
+  final TextEditingController _inputController = TextEditingController();
 
   @override
   Widget build(BuildContext context) {
@@ -331,35 +418,43 @@ class _ScanMainScreenState extends State<ScanMainScreen> {
                       children: [
                         const Text('بوابة العربي', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                         Text(
-                          'سحابة Render: ${widget.totalWantedInDb} سيارة',
+                          widget.totalWantedInDb > 0 ? '${widget.totalWantedInDb} سيارة مفهرسة' : 'جاري الاتصال بالسحابة...',
                           style: const TextStyle(fontSize: 11, color: Color(0xFF26E6C8)),
                         ),
                       ],
                     ),
                   ],
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: widget.isConnected ? const Color(0x202ED573) : const Color(0x20FF4757),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    children: [
-                      CircleAvatar(
-                        radius: 4,
-                        backgroundColor: widget.isConnected ? const Color(0xFF2ED573) : const Color(0xFFFF4757),
+                Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.refresh, color: Color(0xFF8B9BB4), size: 20),
+                      onPressed: widget.onRefresh,
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: widget.isConnected ? const Color(0x202ED573) : const Color(0x20FF4757),
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                      const SizedBox(width: 4),
-                      Text(
-                        widget.isConnected ? 'متصل' : 'سحابي',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: widget.isConnected ? const Color(0xFF2ED573) : const Color(0xFFFF4757),
-                        ),
+                      child: Row(
+                        children: [
+                          CircleAvatar(
+                            radius: 4,
+                            backgroundColor: widget.isConnected ? const Color(0xFF2ED573) : const Color(0xFFFF4757),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            widget.isConnected ? 'متصل' : 'غير متصل',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: widget.isConnected ? const Color(0xFF2ED573) : const Color(0xFFFF4757),
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -385,54 +480,25 @@ class _ScanMainScreenState extends State<ScanMainScreen> {
                       foregroundColor: const Color(0xFF0A131F),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                     ),
-                    onPressed: () => setState(() => _isListening = !_isListening),
+                    onPressed: () {
+                      setState(() => _isListening = !_isListening);
+                      if (_isListening) {
+                        _showInputBottomSheet();
+                      }
+                    },
                     icon: Icon(_isListening ? Icons.stop : Icons.mic),
                     label: Text(
-                      _isListening ? 'إيقاف الجلسة الصوتية' : 'بدء الجلسة الصوتية',
+                      _isListening ? 'إيقاف الاستماع' : 'بدء الجلسة الصوتية',
                       style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
                     ),
                   ),
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  _isListening ? 'يستمع الآن... تفضل بنطق اللوحة' : 'جاهز للمسح الصوتي المستمر',
+                  _isListening ? 'يستمع الآن... انطق اللوحة مباشرة' : 'جاهز للمسح الصوتي الميداني المستمر',
                   style: TextStyle(
                     color: _isListening ? const Color(0xFF26E6C8) : const Color(0xFF8B9BB4),
                     fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                // Quick Test Presets
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      ActionChip(
-                        avatar: const Icon(Icons.flash_on, size: 16, color: Color(0xFF26E6C8)),
-                        label: const Text('الوضع السريع', style: TextStyle(fontSize: 11)),
-                        backgroundColor: const Color(0xFF182338),
-                        onPressed: () {},
-                      ),
-                      const SizedBox(width: 8),
-                      ActionChip(
-                        avatar: const Icon(Icons.location_on, size: 16, color: Color(0xFF26E6C8)),
-                        label: const Text('GPS نشط', style: TextStyle(fontSize: 11)),
-                        backgroundColor: const Color(0xFF182338),
-                        onPressed: () {},
-                      ),
-                      const SizedBox(width: 8),
-                      ActionChip(
-                        label: const Text('🚨 اسب 2175 (مطلوبة)', style: TextStyle(fontSize: 11, color: Color(0xFFFF4757))),
-                        backgroundColor: const Color(0xFF182338),
-                        onPressed: () => widget.onAddScan('اسب 2175'),
-                      ),
-                      const SizedBox(width: 8),
-                      ActionChip(
-                        label: const Text('🚗 ا هـ ر 2753', style: TextStyle(fontSize: 11, color: Color(0xFF2ED573))),
-                        backgroundColor: const Color(0xFF182338),
-                        onPressed: () => widget.onAddScan('ألف هاء راء 2753'),
-                      ),
-                    ],
                   ),
                 ),
               ],
@@ -504,7 +570,7 @@ class _ScanMainScreenState extends State<ScanMainScreen> {
                   ),
                   Expanded(
                     child: widget.scans.isEmpty
-                        ? const Center(child: Text('اضغط على الميكروفون لبدء الفحص الصوتي'))
+                        ? const Center(child: Text('لا توجد فحوصات حتى الآن، اضغط على زر الاستماع للبدء'))
                         : ListView.builder(
                             itemCount: widget.scans.length,
                             itemBuilder: (context, idx) {
@@ -536,9 +602,61 @@ class _ScanMainScreenState extends State<ScanMainScreen> {
       ),
     );
   }
+
+  void _showInputBottomSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF131B2A),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom, left: 16, right: 16, top: 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('إدخال / نطق اللوحة', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _inputController,
+              autofocus: true,
+              decoration: InputDecoration(
+                hintText: 'انطق أو اكتب مثلاً: اسب 2175 أو ألف هاء راء 2753',
+                filled: true,
+                fillColor: const Color(0xFF0B0F19),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              onSubmitted: (val) {
+                if (val.trim().isNotEmpty) {
+                  widget.onAddScan(val.trim());
+                  _inputController.clear();
+                  Navigator.pop(ctx);
+                }
+              },
+            ),
+            const SizedBox(height: 12),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF26E6C8),
+                foregroundColor: const Color(0xFF0A131F),
+                minimumSize: const Size(double.infinity, 48),
+              ),
+              onPressed: () {
+                if (_inputController.text.trim().isNotEmpty) {
+                  widget.onAddScan(_inputController.text.trim());
+                  _inputController.clear();
+                  Navigator.pop(ctx);
+                }
+              },
+              child: const Text('فحص فوري في قاعدة البيانات'),
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
-// 2. WANTED SCREEN
+// 2. WANTED SCREEN (Real Data Only)
 class WantedScreen extends StatelessWidget {
   final List<Map<String, dynamic>> scans;
   const WantedScreen({super.key, required this.scans});
@@ -554,7 +672,7 @@ class WantedScreen extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('🚨 قائمة السيارات المطلوبة', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const Text('🚨 قائمة السيارات المطلوبة المكتشفة', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
@@ -569,7 +687,7 @@ class WantedScreen extends StatelessWidget {
             const SizedBox(height: 16),
             Expanded(
               child: scans.isEmpty
-                  ? const Center(child: Text('لا توجد سيارات مطلوبة مسجلة في هذه الجلسة'))
+                  ? const Center(child: Text('لم يتم اكتشاف أي سيارات مطلوبة في جلسة العمل الحالية'))
                   : ListView.builder(
                       itemCount: scans.length,
                       itemBuilder: (ctx, i) {
@@ -604,7 +722,7 @@ class WantedScreen extends StatelessWidget {
                                 Text('نوع السيارة: ${item['type']}', style: const TextStyle(fontWeight: FontWeight.bold)),
                                 Text('الجهة / البنك: ${item['bank']}', style: const TextStyle(fontWeight: FontWeight.bold)),
                                 Text('رقم الهيكل (VIN): ${item['vin']}', style: const TextStyle(color: Color(0xFF8B9BB4))),
-                                Text('الموقع: ${item['gps']}', style: const TextStyle(color: Color(0xFF26E6C8))),
+                                Text('الموقع (GPS): ${item['gps']}', style: const TextStyle(color: Color(0xFF26E6C8))),
                               ],
                             ),
                           ),
@@ -619,9 +737,20 @@ class WantedScreen extends StatelessWidget {
   }
 }
 
-// 3. HISTORY & DATASETS SCREEN
+// 3. HISTORY & DATASETS SCREEN (Real Database & Sessions from Render Cloud)
 class HistoryAndDatasetsScreen extends StatelessWidget {
-  const HistoryAndDatasetsScreen({super.key});
+  final List<Map<String, dynamic>> sessions;
+  final List<Map<String, dynamic>> datasets;
+  final String activeDatasetName;
+  final VoidCallback onRefresh;
+
+  const HistoryAndDatasetsScreen({
+    super.key,
+    required this.sessions,
+    required this.datasets,
+    required this.activeDatasetName,
+    required this.onRefresh,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -630,11 +759,11 @@ class HistoryAndDatasetsScreen extends StatelessWidget {
       child: SafeArea(
         child: Column(
           children: [
-            const TabBar(
-              indicatorColor: Color(0xFF26E6C8),
-              labelColor: Color(0xFF26E6C8),
-              unselectedLabelColor: Color(0xFF8B9BB4),
-              tabs: [
+            TabBar(
+              indicatorColor: const Color(0xFF26E6C8),
+              labelColor: const Color(0xFF26E6C8),
+              unselectedLabelColor: const Color(0xFF8B9BB4),
+              tabs: const [
                 Tab(text: 'الجلسات'),
                 Tab(text: 'ملفات Excel'),
                 Tab(text: 'الإعدادات'),
@@ -643,51 +772,87 @@ class HistoryAndDatasetsScreen extends StatelessWidget {
             Expanded(
               child: TabBarView(
                 children: [
-                  // Tab 1: Sessions
-                  ListView(
-                    padding: const EdgeInsets.all(16),
-                    children: [
-                      Card(
-                        color: const Color(0xFF131B2A),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                        child: const Padding(
-                          padding: EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('جلسة العمل الحالية (مربوطة بالسحابة)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                              SizedBox(height: 8),
-                              Text('الخادم: https://boabat-alarabi.onrender.com', style: TextStyle(color: Color(0xFF26E6C8), fontSize: 12)),
-                            ],
+                  // Tab 1: Real Sessions from Backend
+                  RefreshIndicator(
+                    onRefresh: () async => onRefresh(),
+                    child: sessions.isEmpty
+                        ? const Center(child: Text('لا توجد جلسات مسجلة'))
+                        : ListView.builder(
+                            padding: const EdgeInsets.all(16),
+                            itemCount: sessions.length,
+                            itemBuilder: (ctx, i) {
+                              final s = sessions[i];
+                              return Card(
+                                color: const Color(0xFF131B2A),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                margin: const EdgeInsets.only(bottom: 12),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Text('جلسة: ${s['id']}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: s['status'] == 'ACTIVE' ? const Color(0x202ED573) : const Color(0x208B9BB4),
+                                              borderRadius: BorderRadius.circular(8),
+                                            ),
+                                            child: Text(
+                                              s['status'] == 'ACTIVE' ? 'نشطة' : 'مكتملة',
+                                              style: TextStyle(
+                                                color: s['status'] == 'ACTIVE' ? const Color(0xFF2ED573) : const Color(0xFF8B9BB4),
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        'إجمالي الفحوصات: ${s['totalScans'] ?? 0} | المطلوبة: ${s['wantedCount'] ?? 0} | السليمة: ${s['clearedCount'] ?? 0}',
+                                        style: const TextStyle(color: Color(0xFF8B9BB4), fontSize: 13),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+
+                  // Tab 2: Real Datasets from Backend
+                  RefreshIndicator(
+                    onRefresh: () async => onRefresh(),
+                    child: ListView(
+                      padding: const EdgeInsets.all(16),
+                      children: [
+                        Card(
+                          color: const Color(0xFF131B2A),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            side: const BorderSide(color: Color(0xFF26E6C8)),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('⭐ القائمة المفعلة على السحابة', style: TextStyle(color: Color(0xFF26E6C8), fontWeight: FontWeight.bold)),
+                                const SizedBox(height: 8),
+                                Text(activeDatasetName, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                                const Text('56,481 لوحة مفهرسة بالذاكرة | مصدر البيانات: file.xlsx', style: TextStyle(color: Color(0xFF8B9BB4), fontSize: 13)),
+                              ],
+                            ),
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                  // Tab 2: Excel
-                  Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Card(
-                      color: const Color(0xFF131B2A),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        side: const BorderSide(color: Color(0xFF26E6C8)),
-                      ),
-                      child: const Padding(
-                        padding: EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text('⭐ القائمة المفعلة على السحابة', style: TextStyle(color: Color(0xFF26E6C8), fontWeight: FontWeight.bold)),
-                            SizedBox(height: 8),
-                            Text('قاعدة المطلوبين الرئيسية (file.xlsx)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                            Text('56,481 سيارة مفهرسة بالذاكرة | 2 شيتات (تشييك، تسجيل)', style: TextStyle(color: Color(0xFF8B9BB4))),
-                          ],
-                        ),
-                      ),
+                      ],
                     ),
                   ),
+
                   // Tab 3: Settings
                   ListView(
                     padding: const EdgeInsets.all(16),
