@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>بوابة العربي - نظام التعرف الصوتي على لوحات السيارات والمطلوبين</title>
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Styles -->
+  <link rel="stylesheet" href="/css/app.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2326E6C8'><path d='M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5'/></svg>">
+</head>
+<body>
+  <!-- App Container (Mobile-first layout) -->
+  <div class="app-container">
+    
+    <!-- Top Header -->
+    <header class="top-header">
+      <div class="header-right">
+        <div class="app-logo">
+          <svg viewBox="0 0 24 24" class="logo-icon" fill="none" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+          </svg>
+        </div>
+        <div class="app-title-group">
+          <h1 class="app-title">بوابة العربي</h1>
+          <span class="app-subtitle" id="activeDatasetLabel">قاعدة المطلوبين: جاري التحميل...</span>
+        </div>
+      </div>
+      
+      <div class="header-left">
+        <div class="connection-badge online" id="connectionBadge" title="حالة الاتصال">
+          <span class="status-dot"></span>
+          <span class="status-text">متصل</span>
+        </div>
+        <button class="icon-btn" id="sessionMenuBtn" title="خيارات الجلسة">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Screens Container -->
+    <main class="main-content">
+      
+      <!-- ================= SCREEN 1: SCAN (الفحص) ================= -->
+      <section class="screen-view active" id="scanScreen">
+        
+        <!-- Voice Control Card -->
+        <div class="voice-card" id="voiceCard">
+          <button class="voice-action-btn idle" id="voiceToggleBtn">
+            <span class="btn-icon">
+              <svg viewBox="0 0 24 24" class="mic-icon" fill="none" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+              </svg>
+              <svg viewBox="0 0 24 24" class="stop-icon" fill="currentColor">
+                <rect x="5" y="5" width="14" height="14" rx="2" />
+              </svg>
+            </span>
+            <span class="btn-label" id="voiceBtnLabel">بدء الجلسة الصوتية</span>
+          </button>
+
+          <!-- Voice Status and Live Recognition -->
+          <div class="voice-status-area">
+            <div class="listening-indicator" id="listeningIndicator" style="display: none;">
+              <span class="pulse-wave"></span>
+              <span class="pulse-text">يستمع الآن...</span>
+            </div>
+            <div class="live-transcript" id="liveTranscript">جاهز لبدء المسح الصوتي المستمر</div>
+          </div>
+
+          <!-- Feature Chips Row -->
+          <div class="chips-row">
+            <div class="chip active" id="fastModeChip">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+              <span>الوضع السريع</span>
+            </div>
+            <div class="chip" id="perfChip">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+              <span>أداء قوي</span>
+            </div>
+            <div class="chip" id="gpsChip">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a8 8 0 00-8 8c0 5.25 8 12 8 12s8-6.75 8-12a8 8 0 00-8-8z"/><circle cx="12" cy="10" r="3"/></svg>
+              <span id="gpsStatusText">GPS نشط</span>
+            </div>
+          </div>
+
+          <!-- Audio Level Visualizer -->
+          <div class="audio-level-row">
+            <div class="audio-badge" id="audioLevelBadge">متوسط</div>
+            <div class="visualizer-container">
+              <canvas id="audioVisualizerCanvas" width="280" height="12"></canvas>
+            </div>
+            <span class="audio-label">الصوت</span>
+          </div>
+        </div>
+
+        <!-- Quick Dialect Test Presets -->
+        <div class="preset-speech-bar">
+          <span class="preset-title">أمثلة نطق تجريبية سريعة:</span>
+          <div class="preset-chips">
+            <button class="preset-btn" data-phrase="اسب 2175">🚨 اسب 2175 (مطلوبة)</button>
+            <button class="preset-btn" data-phrase="ركد 9678">🚨 ركد 9678 (مطلوبة)</button>
+            <button class="preset-btn" data-phrase="ألف هاء راء 2753">🚗 ا هـ ر 2753 (سليمة)</button>
+            <button class="preset-btn" data-phrase="ديل الف دال 2524">🚗 د ا د 2524 (فيديو)</button>
+            <button class="preset-btn" data-phrase="ألف هاء راء ألفين سبعمية تلاتة وخمسين">🗣 مصري مركب</button>
+          </div>
+        </div>
+
+        <!-- Scan Session Stats Bar -->
+        <div class="session-stats-bar">
+          <div class="stat-pill">
+            <span class="stat-num" id="statTotalScans">0</span>
+            <span class="stat-title">إجمالي الفحص</span>
+          </div>
+          <div class="stat-pill wanted">
+            <span class="stat-num" id="statWantedScans">0</span>
+            <span class="stat-title">مطلوبة ⚠️</span>
+          </div>
+          <div class="stat-pill cleared">
+            <span class="stat-num" id="statClearedScans">0</span>
+            <span class="stat-title">سليمة ✔</span>
+          </div>
+        </div>
+
+        <!-- Results Table Card -->
+        <div class="table-card">
+          <div class="table-header-row">
+            <span class="col-num">#</span>
+            <span class="col-letters">الحروف</span>
+            <span class="col-digits">الأرقام</span>
+            <span class="col-status">الحالة</span>
+          </div>
+          <div class="table-body" id="scanResultsList">
+            <!-- Dynamic Scan Rows populated here -->
+            <div class="empty-state" id="emptyScanState">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
+              </svg>
+              <p>اضغط على زر الميكروفون لبدء تسجيل لوحات السيارات صوتيًا</p>
+              <span class="hint">يتم التعرف والبحث في قاعدة المطلوبين لحظيًا وبشكل مستمر</span>
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ================= SCREEN 2: WANTED (مطلوب) ================= -->
+      <section class="screen-view" id="wantedScreen">
+        <div class="view-header">
+          <h2>🚨 قائمة السيارات المطلوبة المكتشفة</h2>
+          <span class="badge-count" id="wantedCountBadge">0 سيارة</span>
+        </div>
+
+        <!-- Search Bar -->
+        <div class="search-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+          <input type="text" id="wantedSearchInput" placeholder="بحث برقم اللوحة أو اسم البنك أو الهيكل...">
+        </div>
+
+        <div class="wanted-cards-list" id="wantedCardsList">
+          <div class="empty-state">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+            <p>لا توجد تنبيهات لسيارات مطلوبة في هذه الجلسة حتى الآن</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= SCREEN 3: ALL / HISTORY & DATASETS (الكل) ================= -->
+      <section class="screen-view" id="allScreen">
+        
+        <!-- Tab Navigation inside screen -->
+        <div class="subtabs-bar">
+          <button class="subtab-btn active" data-subtab="sessionsTab">الجلسات</button>
+          <button class="subtab-btn" data-subtab="datasetsTab">ملفات Excel</button>
+          <button class="subtab-btn" data-subtab="benchmarkTab">اختبار PoC</button>
+          <button class="subtab-btn" data-subtab="settingsTab">الإعدادات</button>
+        </div>
+
+        <!-- Subtab 1: Sessions History -->
+        <div class="subtab-content active" id="sessionsTab">
+          <div class="section-actions-row">
+            <button class="action-btn primary" id="exportAllExcelBtn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+              <span>تصدير كل الفحوصات إلى Excel</span>
+            </button>
+            <button class="action-btn secondary" id="newSessionBtn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v16m8-8H4"/></svg>
+              <span>جلسة جديدة</span>
+            </button>
+          </div>
+
+          <div class="sessions-list" id="sessionsList">
+            <!-- Dynamic session items -->
+          </div>
+        </div>
+
+        <!-- Subtab 2: Datasets & Excel Import -->
+        <div class="subtab-content" id="datasetsTab">
+          <div class="section-actions-row">
+            <label class="action-btn primary file-upload-label" for="excelFileInput">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l4-4m0 0l4 4m-4-4v12"/></svg>
+              <span>استيراد ملف Excel جديد</span>
+              <input type="file" id="excelFileInput" accept=".xlsx,.xls" style="display: none;">
+            </label>
+          </div>
+
+          <div class="active-dataset-card" id="activeDatasetCard">
+            <!-- Active Dataset Details -->
+          </div>
+
+          <h3 class="subsection-title">قوائم المطلوبين السابقة (Versioning)</h3>
+          <div class="datasets-history-list" id="datasetsHistoryList">
+            <!-- Datasets history -->
+          </div>
+        </div>
+
+        <!-- Subtab 3: PoC Benchmark & Accuracy Tester -->
+        <div class="subtab-content" id="benchmarkTab">
+          <div class="benchmark-header">
+            <h3>أداة التحقق من الدقة والـ PoC (Accuracy & Latency Benchmark)</h3>
+            <p>اختبار شامل لخوارزميات التعرف الصوتي، اللهجة المصرية، الأرقام المركبة، ومطابقة المطلوبين.</p>
+            <button class="action-btn primary" id="runBenchmarkBtn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              <span>تشغيل الاختبار الآلي</span>
+            </button>
+          </div>
+
+          <div class="benchmark-results-container" id="benchmarkResultsArea" style="display: none;">
+            <div class="benchmark-summary-cards">
+              <div class="bench-stat-card">
+                <span class="bench-stat-val" id="benchAccuracy">0%</span>
+                <span class="bench-stat-label">دقة استخراج اللوحات</span>
+              </div>
+              <div class="bench-stat-card">
+                <span class="bench-stat-val" id="benchLatency">0ms</span>
+                <span class="bench-stat-label">متوسط زمن المعالجة</span>
+              </div>
+              <div class="bench-stat-card">
+                <span class="bench-stat-val" id="benchPassed">0/0</span>
+                <span class="bench-stat-label">الحالات الناجحة</span>
+              </div>
+            </div>
+
+            <div class="benchmark-table-wrapper">
+              <table class="bench-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>النص الصوتي المدخل</th>
+                    <th>المتوقع</th>
+                    <th>المستخرج</th>
+                    <th>المعالجة</th>
+                    <th>النتيجة</th>
+                  </tr>
+                </thead>
+                <tbody id="benchTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Subtab 4: Settings -->
+        <div class="subtab-content" id="settingsTab">
+          <div class="settings-group">
+            <h4 class="settings-title">إعدادات الصوت والتعرف</h4>
+            <div class="setting-item">
+              <label>لهجة التعرف الصوتي:</label>
+              <select id="settingLanguage" class="custom-select">
+                <option value="ar-EG" selected>لهجة مصرية (ar-EG) - موصى به</option>
+                <option value="ar-SA">لهجة سعودية (ar-SA)</option>
+                <option value="ar-YE">لهجة يمنية (ar-YE)</option>
+              </select>
+            </div>
+            <div class="setting-item toggle-row">
+              <label>تنبيه صوتي فوري عند اكتشاف سيارة مطلوبة (Siren Sound):</label>
+              <input type="checkbox" id="settingSoundAlert" checked>
+            </div>
+            <div class="setting-item toggle-row">
+              <label>اهتزاز الهاتف عند التنبيه (Haptic Feedback):</label>
+              <input type="checkbox" id="settingHapticAlert" checked>
+            </div>
+            <div class="setting-item toggle-row">
+              <label>تسجيل إحداثيات GPS تلقائيًا مع كل لوحة:</label>
+              <input type="checkbox" id="settingGpsCapture" checked>
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+    </main>
+
+    <!-- Bottom Navigation Bar -->
+    <nav class="bottom-nav">
+      <button class="nav-item" data-target="wantedScreen">
+        <div class="nav-icon-wrapper">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+            <path d="M13.73 21a2 2 0 01-3.46 0"/>
+          </svg>
+          <span class="nav-badge" id="navWantedBadge" style="display: none;">0</span>
+        </div>
+        <span class="nav-label">مطلوب</span>
+      </button>
+
+      <button class="nav-item active center-item" data-target="scanScreen">
+        <div class="center-btn-bubble">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+        </div>
+        <span class="nav-label">الفحص</span>
+      </button>
+
+      <button class="nav-item" data-target="allScreen">
+        <div class="nav-icon-wrapper">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="7" height="7"/>
+            <rect x="14" y="3" width="7" height="7"/>
+            <rect x="14" y="14" width="7" height="7"/>
+            <rect x="3" y="14" width="7" height="7"/>
+          </svg>
+        </div>
+        <span class="nav-label">الكل</span>
+      </button>
+    </nav>
+
+  </div>
+
+  <!-- ================= MODALS & POPUPS ================= -->
+
+  <!-- 1. Wanted Alert Modal (Full Visual Warning) -->
+  <div class="modal-backdrop" id="wantedAlertModal" style="display: none;">
+    <div class="wanted-modal-card">
+      <div class="wanted-modal-header">
+        <div class="warning-icon-glow">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L1 21h22L12 2zm0 3.99L19.53 19H4.47L12 5.99zM11 10v4h2v-4h-2zm0 6v2h2v-2h-2z"/></svg>
+        </div>
+        <h2>⚠️ تنبيه: سيارة مطلوبة!</h2>
+        <span class="alert-sub">تمت المطابقة الفورية مع قاعدة المطلوبين</span>
+      </div>
+
+      <div class="wanted-plate-banner" id="modalPlateBanner">ا س ب 2175</div>
+
+      <div class="wanted-details-grid">
+        <div class="detail-row">
+          <span class="detail-label">نوع السيارة:</span>
+          <span class="detail-value" id="modalVehicleType">شاحنة</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">الجهة / البنك:</span>
+          <span class="detail-value" id="modalBank">طلال السديس</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">رقم الهيكل (VIN):</span>
+          <span class="detail-value" id="modalVin">KLUKH2T41PK000154</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">مصدر البيانات:</span>
+          <span class="detail-value" id="modalSheet">تشييك (الصف 2)</span>
+        </div>
+        <div class="detail-row" id="modalGpsRow">
+          <span class="detail-label">موقع الرصد:</span>
+          <span class="detail-value" id="modalGpsLocation">-</span>
+        </div>
+      </div>
+
+      <div class="wanted-modal-actions">
+        <button class="modal-btn dismiss-btn" id="dismissAlertBtn">متابعة الفحص</button>
+        <button class="modal-btn map-btn" id="openMapBtn" style="display: none;">عرض على الخريطة</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. Scan Record Detail Drawer -->
+  <div class="modal-backdrop" id="scanDetailModal" style="display: none;">
+    <div class="detail-drawer-card">
+      <div class="drawer-header">
+        <h3 id="drawerTitle">تفاصيل اللوحة</h3>
+        <button class="close-btn" id="closeDrawerBtn">&times;</button>
+      </div>
+      <div class="drawer-body" id="drawerBody">
+        <!-- Content filled dynamically -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="/js/alerts.js"></script>
+  <script src="/js/plate_parser.js"></script>
+  <script src="/js/audio_engine.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

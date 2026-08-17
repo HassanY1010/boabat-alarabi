@@ -1,0 +1,10 @@
+node_modules/
+.npm/
+*.log
+scratch_frames/
+flutter_app/.dart_tool/
+flutter_app/build/
+flutter_app/.flutter-plugins
+flutter_app/.flutter-plugins-dependencies
+.DS_Store
+Thumbs.db

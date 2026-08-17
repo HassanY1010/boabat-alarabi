@@ -1,0 +1,2623 @@
+# بوابة العربي
+
+## Voice-Based Vehicle Plate Recognition & Wanted Vehicle Detection System
+
+**Document Type:** Complete Software Requirements & AI Development Specification
+**Version:** 1.0
+**Target:** Production-Ready Mobile Application
+**Primary Platform:** Android
+**Language:** Arabic / RTL
+**Primary Speech Accent:** Egyptian Arabic
+**Secondary Accent:** Yemeni Arabic
+**Primary Objective:** Extremely fast and highly accurate voice-based vehicle plate capture and wanted-plate detection.
+
+---
+
+# 1. Executive Summary
+
+"بوابة العربي" هو تطبيق موبايل متخصص في تسجيل أرقام لوحات السيارات باستخدام الصوت أثناء العمل الميداني.
+
+المستخدم لا يريد كتابة رقم اللوحة يدويًا.
+
+بدلًا من ذلك:
+
+1. يفتح التطبيق.
+2. يضغط على زر الميكروفون.
+3. يبدأ التطبيق بالاستماع بشكل مستمر.
+4. المستخدم ينطق أرقام وحروف اللوحات بشكل طبيعي وسريع.
+5. التطبيق يحول الكلام إلى بيانات لوحة.
+6. يقوم التطبيق باستخراج:
+
+   * حروف اللوحة.
+   * أرقام اللوحة.
+7. يعرض اللوحة فورًا في قائمة النتائج.
+8. يسجل موقع GPS لحظة التقاط اللوحة.
+9. يبحث عن اللوحة في البيانات المستوردة من Excel.
+10. إذا كانت اللوحة مطلوبة، يظهر تنبيه بصري وصوتي قوي وفوري.
+11. تستمر الجلسة في الاستماع دون الحاجة إلى الضغط على الميكروفون لكل لوحة.
+12. عند انتهاء العمل يستطيع المستخدم إنهاء الجلسة وتصدير جميع النتائج إلى Excel.
+
+---
+
+# 2. أهم شرط في المشروع
+
+## Accuracy & Speed Are The Core Product
+
+هذا التطبيق لا يعتبر ناجحًا لمجرد أن:
+
+* الميكروفون يعمل.
+* Speech-to-Text يعمل.
+* النص يظهر على الشاشة.
+* Excel يتم استيراده.
+* API يعمل.
+
+النجاح الحقيقي هو:
+
+> المستخدم ينطق لوحة سيارة بسرعة وبلهجة مصرية طبيعية، والتطبيق يلتقط اللوحة ويحولها إلى حروف وأرقام صحيحة خلال وقت قصير جدًا، ثم يحدد فورًا إذا كانت اللوحة موجودة في قائمة المطلوبين.
+
+أي Feature أخرى تعتبر ثانوية مقارنة بهذه الوظيفة.
+
+---
+
+# 3. Critical Feasibility Requirement
+
+قبل بناء النظام الكامل يجب إنشاء Prototype مستقل لاختبار Speech Recognition.
+
+## Mandatory Proof of Concept
+
+يجب اختبار:
+
+### Example 1
+
+المستخدم يقول:
+
+"ألف هاء راء 2753"
+
+النظام يجب أن يستخرج:
+
+Letters:
+`ا هـ ر`
+
+Numbers:
+`2753`
+
+---
+
+### Example 2
+
+المستخدم يقول:
+
+"باء ياء دال 3863"
+
+النظام يجب أن يستخرج:
+
+Letters:
+`ب ي د`
+
+Numbers:
+`3863`
+
+---
+
+## Egyptian Dialect
+
+يجب اختبار النطق الطبيعي وليس الفصحى فقط.
+
+أمثلة محتملة:
+
+"ألف هاء راء ألفين سبعمية تلاتة وخمسين"
+
+"باء ياء دال تلاتة آلاف تمنمية تلاتة وستين"
+
+"ا هـ ر ٢٧٥٣"
+
+"اه ربع؟" / النطق السريع أو المتصل حسب الاستخدام الحقيقي.
+
+يجب بناء Test Dataset من تسجيلات صوتية حقيقية للمستخدمين المستهدفين.
+
+---
+
+# 4. Important Accuracy Principle
+
+لا يجوز الاعتماد على Speech-to-Text الخام وحده.
+
+Speech-to-Text قد يحول:
+
+"دال باء كاف 2121"
+
+إلى نص غير صحيح.
+
+لذلك يجب بناء طبقة:
+
+## Speech Recognition
+
+ثم:
+
+## Plate Normalization
+
+ثم:
+
+## Plate Parsing
+
+ثم:
+
+## Plate Validation
+
+ثم:
+
+## Wanted Database Matching
+
+Architecture:
+
+```text
+Microphone
+    ↓
+Voice Activity Detection
+    ↓
+Streaming Speech Recognition
+    ↓
+Arabic Text Normalizer
+    ↓
+Plate Parser
+    ↓
+Arabic Letter Mapping
+    ↓
+Arabic Number Mapping
+    ↓
+Plate Validator
+    ↓
+Excel / Database Matching
+    ↓
+Result
+```
+
+---
+
+# 5. Never Promise 100% Accuracy
+
+النظام يجب تصميمه لتحقيق أعلى دقة ممكنة، لكن لا يجوز افتراض أو ادعاء 100% Accuracy بشكل مطلق.
+
+الدقة تعتمد على:
+
+* جودة الميكروفون.
+* ضوضاء الشارع.
+* سرعة النطق.
+* المسافة من الهاتف.
+* اللهجة.
+* الشبكة.
+* Speech Engine.
+* طريقة نطق الأرقام.
+* تشابه الأصوات.
+* اختلاف نطق الحروف.
+
+لذلك يجب تعريف:
+
+## Target Accuracy
+
+ويتم قياسها عمليًا بواسطة Dataset حقيقي.
+
+الهدف المقترح:
+
+* Plate Recognition Accuracy ≥ 99% في الظروف المستهدفة.
+* Wanted Match Accuracy ≥ 99.9%.
+* Zero false positive alert target قدر الإمكان.
+* Latency منخفض جدًا.
+
+ولكن الرقم النهائي يجب تحديده بعد اختبار الـ PoC.
+
+---
+
+# 6. Input Data
+
+المستخدم لديه ملف Excel حقيقي يحتوي على:
+
+* عدة Sheets.
+* عدد كبير من السيارات.
+* أرقام اللوحات.
+* نوع السيارة.
+* بيانات المالك.
+* البنك.
+* معلومات أخرى.
+
+يجب عدم افتراض أسماء الأعمدة مسبقًا.
+
+يجب بناء Excel Importer مرن.
+
+---
+
+# 7. Excel Import System
+
+## Requirements
+
+المستخدم يستطيع:
+
+1. اختيار Excel File.
+2. رفع الملف.
+3. عرض جميع Sheets.
+4. قراءة Headers.
+5. اكتشاف الأعمدة.
+6. اختيار العمود الذي يمثل رقم اللوحة.
+7. اختيار الأعمدة الإضافية.
+8. Import البيانات.
+
+---
+
+# 8. Excel Multiple Sheets
+
+يجب دعم:
+
+```text
+Sheet 1
+Sheet 2
+Sheet 3
+...
+Sheet N
+```
+
+ويجب البحث في جميع الـ Sheets.
+
+مثال:
+
+```text
+Sheet 1
+Plate | Owner | Bank | Vehicle Type
+
+Sheet 2
+Plate | Owner | Bank | Vehicle Type
+
+Sheet 3
+Plate | Owner | Bank | Vehicle Type
+```
+
+يجب دمج البيانات منطقيًا داخل قاعدة البيانات مع الاحتفاظ باسم الـ Sheet الأصلي.
+
+---
+
+# 9. Daily Excel Import
+
+المستخدم ذكر أنه يقوم برفع الملف يوميًا.
+
+لذلك يجب دعم:
+
+```text
+Import Dataset
+      ↓
+Validate File
+      ↓
+Read Sheets
+      ↓
+Normalize Plates
+      ↓
+Remove Invalid Records
+      ↓
+Detect Duplicates
+      ↓
+Store Dataset
+      ↓
+Mark Dataset as Active
+```
+
+كل ملف يجب أن يكون له:
+
+```text
+dataset_id
+file_name
+uploaded_at
+uploaded_by
+sheet_count
+record_count
+status
+```
+
+---
+
+# 10. Dataset Versioning
+
+لا يجب حذف البيانات القديمة مباشرة.
+
+كل Import يمثل Version.
+
+مثال:
+
+```text
+Dataset #1
+2026-08-15
+
+Dataset #2
+2026-08-16
+
+Dataset #3
+2026-08-17
+```
+
+يتم تحديد Dataset واحد باعتباره:
+
+```text
+ACTIVE
+```
+
+والبحث أثناء الجلسة يكون داخل الـ Active Dataset.
+
+---
+
+# 11. Plate Normalization
+
+يجب توحيد اللوحة قبل البحث.
+
+مثال:
+
+```text
+ا هـ ر 2753
+ا-هـ-ر 2753
+ا هـ ر ٢٧٥٣
+اهر2753
+```
+
+يمكن أن تتحول داخليًا إلى:
+
+```text
+AHR2753
+```
+
+أو إلى Canonical Arabic Representation.
+
+لكن يجب الاحتفاظ بالصيغة الأصلية للعرض.
+
+---
+
+# 12. Arabic Number Normalization
+
+يجب دعم:
+
+```text
+0 1 2 3 4 5 6 7 8 9
+```
+
+و:
+
+```text
+٠ ١ ٢ ٣ ٤ ٥ ٦ ٧ ٨ ٩
+```
+
+وكذلك الكلمات العربية عند الحاجة:
+
+```text
+صفر
+واحد
+اثنين
+ثلاثة
+أربعة
+خمسة
+ستة
+سبعة
+ثمانية
+تسعة
+```
+
+مع دعم النطق المصري الشائع قدر الإمكان:
+
+```text
+اتنين
+تلاتة
+أربعة
+خمسة
+ستة
+سبعة
+تمانية
+تسعة
+```
+
+---
+
+# 13. Arabic Letter Mapping
+
+يجب إنشاء Dictionary قابل للتوسع.
+
+مثال:
+
+```text
+ألف → ا
+باء → ب
+تاء → ت
+ثاء → ث
+جيم → ج
+حاء → ح
+خاء → خ
+دال → د
+ذال → ذ
+راء → ر
+زاي → ز
+سين → س
+شين → ش
+صاد → ص
+ضاد → ض
+طاء → ط
+ظاء → ظ
+عين → ع
+غين → غ
+فاء → ف
+قاف → ق
+كاف → ك
+لام → ل
+ميم → م
+نون → ن
+هاء → هـ
+واو → و
+ياء → ي
+```
+
+يجب دعم Variants في النطق.
+
+---
+
+# 14. Saudi Plate Support
+
+التطبيق يجب ألا يكون مقيدًا بتنسيق مصري.
+
+يجب تصميم Plate Parser ليكون Configurable.
+
+مثال:
+
+```text
+Saudi:
+3 Arabic Letters + 4 Numbers
+```
+
+ولكن لا يتم Hardcode لهذا الشكل فقط.
+
+يجب أن يكون هناك:
+
+```text
+Plate Format Configuration
+```
+
+بحيث يمكن لاحقًا دعم:
+
+* السعودية.
+* مصر.
+* اليمن.
+* دول أخرى.
+
+---
+
+# 15. Continuous Listening
+
+هذه من أهم المتطلبات.
+
+عند الضغط على Start:
+
+```text
+Microphone ON
+       ↓
+Listening
+       ↓
+Plate detected
+       ↓
+Process
+       ↓
+Continue listening
+       ↓
+Plate detected
+       ↓
+Process
+       ↓
+Continue...
+```
+
+المستخدم لا يريد:
+
+```text
+Press microphone
+Speak
+Stop
+Press microphone
+Speak
+Stop
+```
+
+بل:
+
+```text
+Press once
+↓
+Continuous session
+↓
+Speak multiple plates
+↓
+Stop at end
+```
+
+---
+
+# 16. Voice Activity Detection
+
+يجب استخدام VAD أو equivalent mechanism.
+
+الهدف:
+
+* معرفة بداية الكلام.
+* معرفة نهاية نطق اللوحة.
+* تجاهل الصمت.
+* تجاهل الأصوات غير المفيدة.
+* تقليل استهلاك الشبكة.
+* تقليل latency.
+
+---
+
+# 17. Streaming Speech Recognition
+
+يفضل استخدام Streaming STT بدل:
+
+```text
+Record full audio
+↓
+Upload
+↓
+Wait
+↓
+Transcribe
+```
+
+يجب استخدام:
+
+```text
+Microphone
+↓
+Audio Stream
+↓
+Streaming STT
+↓
+Partial Transcript
+↓
+Plate Parser
+↓
+Immediate Result
+```
+
+---
+
+# 18. Partial Recognition
+
+يجب استغلال Partial Results.
+
+مثلاً المستخدم يقول:
+
+```text
+ألف هاء راء...
+```
+
+النظام يبدأ تحليل:
+
+```text
+ا هـ ر
+```
+
+ثم عند وصول:
+
+```text
+2753
+```
+
+يكمل:
+
+```text
+AHR2753
+```
+
+بدل انتظار انتهاء كل الجلسة.
+
+---
+
+# 19. Plate Parser
+
+يجب أن يكون Parser مستقلًا عن UI.
+
+Input:
+
+```text
+String recognizedText
+```
+
+Output:
+
+```text
+ParsedPlate?
+```
+
+مثال:
+
+```json
+{
+  "letters": "ا هـ ر",
+  "numbers": "2753",
+  "canonical": "AHR2753",
+  "confidence": 0.98
+}
+```
+
+---
+
+# 20. Confidence Score
+
+كل نتيجة يجب أن تحتوي داخليًا على Confidence.
+
+مثال:
+
+```text
+0.99 → High Confidence
+0.95 → High Confidence
+0.85 → Medium
+0.70 → Low
+```
+
+لا يجب عرض الرقم للمستخدم بالضرورة.
+
+لكن النظام يستخدمه لتحديد:
+
+* Accept automatically.
+* Retry recognition.
+* Ask for confirmation.
+
+---
+
+# 21. Context-Aware Recognition
+
+يجب استخدام بيانات Excel للمساعدة في التصحيح.
+
+مثال:
+
+النظام سمع:
+
+```text
+AHR275B
+```
+
+لكن في Excel توجد:
+
+```text
+AHR2753
+```
+
+إذا كانت احتمالية المطابقة عالية، يمكن للنظام ترجيح:
+
+```text
+AHR2753
+```
+
+لكن يجب تسجيل أن النتيجة كانت normalized/corrected.
+
+---
+
+# 22. Never Silently Make Dangerous Corrections
+
+لا يجوز أن يقوم النظام بتغيير لوحة إلى لوحة أخرى بدون منطق واضح.
+
+خصوصًا في Wanted Detection.
+
+لذلك:
+
+```text
+Raw Transcript
+Parsed Plate
+Normalized Plate
+Matched Plate
+Correction Confidence
+```
+
+يجب الاحتفاظ بها.
+
+---
+
+# 23. Wanted Detection
+
+بعد استخراج اللوحة:
+
+```text
+Plate
+ ↓
+Normalize
+ ↓
+Lookup Active Dataset
+ ↓
+Found?
+```
+
+إذا:
+
+```text
+NO
+```
+
+النتيجة:
+
+```text
+CLEAR
+```
+
+إذا:
+
+```text
+YES
+```
+
+النتيجة:
+
+```text
+WANTED
+```
+
+---
+
+# 24. Wanted Alert
+
+عند اكتشاف لوحة مطلوبة:
+
+## Visual Alert
+
+يظهر:
+
+```text
+⚠️ لوحة مطلوبة
+```
+
+مع بيانات السيارة الموجودة في Excel.
+
+مثال:
+
+```text
+اللوحة: أ هـ ر 2753
+نوع السيارة: Toyota
+المالك: XXXXX
+البنك: XXXXX
+المصدر: Sheet 2
+```
+
+---
+
+# 25. Strong Audio Alert
+
+يجب إصدار صوت قوي وفوري.
+
+مثال:
+
+```text
+تنبيه!
+لوحة مطلوبة!
+```
+
+ويجب ألا يعتمد النظام على المستخدم لرؤية الشاشة.
+
+---
+
+# 26. Haptic Alert
+
+عند Wanted Detection:
+
+```text
+Vibration
++
+Strong Sound
++
+Visual Warning
+```
+
+ويجب منع تكرار التنبيه عشرات المرات إذا ظلت نفس اللوحة في حالة معالجة واحدة.
+
+---
+
+# 27. GPS Capture
+
+كل Plate Scan يجب أن يحتوي:
+
+```text
+latitude
+longitude
+accuracy
+captured_at
+```
+
+مثال:
+
+```json
+{
+  "latitude": 24.7136,
+  "longitude": 46.6753,
+  "accuracy": 8.4
+}
+```
+
+---
+
+# 28. GPS Timing
+
+الموقع يجب تسجيله في أقرب وقت ممكن من لحظة اكتشاف اللوحة.
+
+يفضل:
+
+```text
+Plate Detected
++
+Current GPS Fix
+=
+Scan Record
+```
+
+ويجب عدم إيقاف معالجة الصوت انتظارًا طويلًا للحصول على GPS.
+
+---
+
+# 29. Scan Session
+
+كل عملية عمل تكون Session.
+
+مثال:
+
+```text
+Session #20260817-001
+Started: 08:00
+Ended: 12:00
+User: Hassan
+```
+
+وتحتها:
+
+```text
+Plate 1
+Plate 2
+Plate 3
+...
+```
+
+---
+
+# 30. Scan Record
+
+كل نتيجة يجب أن تحتوي:
+
+```text
+id
+session_id
+raw_transcript
+letters
+numbers
+canonical_plate
+confidence
+status
+wanted
+latitude
+longitude
+gps_accuracy
+captured_at
+processing_time_ms
+dataset_id
+matched_record_id
+```
+
+---
+
+# 31. Duplicate Plates
+
+يجب دعم تكرار نفس اللوحة.
+
+لأن نفس السيارة قد تظهر أكثر من مرة.
+
+لا يجب حذفها تلقائيًا.
+
+مثال:
+
+```text
+AHR2753 - 10:01 - GPS A
+AHR2753 - 10:25 - GPS B
+AHR2753 - 11:10 - GPS C
+```
+
+هذه ثلاث عمليات Scan مختلفة.
+
+---
+
+# 32. Scan Table
+
+الشاشة الرئيسية تحتوي:
+
+```text
+# | اللوحة | الموقع | الحالة
+```
+
+أو:
+
+```text
+# | الحروف | الأرقام | GPS | الحالة
+```
+
+يجب أن تكون RTL.
+
+أحدث نتيجة تظهر في الأعلى.
+
+---
+
+# 33. Result States
+
+كل Scan يمكن أن يكون:
+
+```text
+PROCESSING
+CLEARED
+WANTED
+LOW_CONFIDENCE
+INVALID
+ERROR
+```
+
+---
+
+# 34. Main UI
+
+## Dark Theme
+
+Background:
+
+```text
+#0D1117
+```
+
+Accent:
+
+```text
+Cyan / Teal
+```
+
+White primary text.
+
+Rounded cards.
+
+Arabic RTL.
+
+---
+
+# 35. Main Screen
+
+Header:
+
+```text
+بوابة العربي
+```
+
+ثم:
+
+```text
+حالة الجلسة
+```
+
+ثم زر كبير:
+
+```text
+🎙 بدء الجلسة الصوتية
+```
+
+بعد التشغيل:
+
+```text
+⏹ إيقاف الجلسة الصوتية
+
+يستمع الآن...
+```
+
+---
+
+# 36. Audio Visualization
+
+يجب عرض مؤشر حي للصوت.
+
+مثال:
+
+```text
+▁▂▅▇▅▂▁
+```
+
+يتغير حسب مستوى الصوت.
+
+لا يجب أن يكون Animation شكليًا فقط.
+
+يجب أن يرتبط بمستوى الصوت الحقيقي.
+
+---
+
+# 37. Session Statistics
+
+أثناء الجلسة:
+
+```text
+عدد اللوحات: 125
+مطلوبة: 3
+سليمة: 122
+```
+
+ويمكن إضافة:
+
+```text
+متوسط زمن المعالجة: 420ms
+```
+
+لأغراض التطوير والاختبار.
+
+---
+
+# 38. Bottom Navigation
+
+Three tabs:
+
+```text
+🚨 المطلوب
+🎥 الفحص
+📋 السجل
+```
+
+---
+
+# 39. Wanted Screen
+
+تعرض:
+
+* عدد اللوحات المطلوبة.
+* آخر التنبيهات.
+* بيانات السيارات.
+* إمكانية البحث.
+
+---
+
+# 40. History Screen
+
+تعرض:
+
+```text
+Sessions
+```
+
+مثال:
+
+```text
+17 Aug 2026
+08:00 - 12:00
+Scans: 428
+Wanted: 6
+```
+
+يمكن فتح Session.
+
+---
+
+# 41. Session Details
+
+يظهر:
+
+* كل اللوحات.
+* الوقت.
+* GPS.
+* الحالة.
+* بيانات المطابقة.
+* Confidence.
+* Raw Transcript.
+
+---
+
+# 42. Excel Export
+
+عند انتهاء Session:
+
+```text
+Export to Excel
+```
+
+الملف يجب أن يحتوي على أعمدة مثل:
+
+```text
+Plate
+Letters
+Numbers
+Status
+Wanted
+Vehicle Type
+Owner
+Bank
+Latitude
+Longitude
+GPS Accuracy
+Date
+Time
+Confidence
+Processing Time
+```
+
+---
+
+# 43. Excel Export Filename
+
+مثال:
+
+```text
+Boabat_Alarabi_Session_2026-08-17.xlsx
+```
+
+---
+
+# 44. Excel Import UI
+
+صفحة:
+
+```text
+استيراد قائمة المطلوبين
+```
+
+Buttons:
+
+```text
+اختيار ملف Excel
+```
+
+ثم:
+
+```text
+تحليل الملف
+```
+
+ثم عرض:
+
+```text
+عدد Sheets
+عدد Records
+عدد اللوحات
+عدد المكررات
+عدد الأخطاء
+```
+
+ثم:
+
+```text
+تفعيل القائمة
+```
+
+---
+
+# 45. Database Architecture
+
+Recommended:
+
+```text
+PostgreSQL
+```
+
+Tables:
+
+```text
+users
+datasets
+dataset_sheets
+wanted_vehicles
+scan_sessions
+scan_records
+gps_locations
+```
+
+---
+
+# 46. Users
+
+```text
+id
+name
+phone
+email
+role
+is_active
+created_at
+updated_at
+```
+
+Roles:
+
+```text
+ADMIN
+OPERATOR
+VIEWER
+```
+
+---
+
+# 47. Datasets
+
+```text
+id
+name
+file_name
+version
+status
+uploaded_by
+uploaded_at
+activated_at
+```
+
+Status:
+
+```text
+PROCESSING
+ACTIVE
+ARCHIVED
+FAILED
+```
+
+---
+
+# 48. Dataset Sheets
+
+```text
+id
+dataset_id
+sheet_name
+row_count
+created_at
+```
+
+---
+
+# 49. Wanted Vehicles
+
+```text
+id
+dataset_id
+sheet_id
+plate_original
+plate_normalized
+letters
+numbers
+vehicle_type
+owner
+bank
+metadata_json
+created_at
+updated_at
+```
+
+يجب أن يكون:
+
+```text
+plate_normalized
+```
+
+مفهرسًا.
+
+---
+
+# 50. Scan Sessions
+
+```text
+id
+user_id
+started_at
+ended_at
+total_scans
+wanted_count
+cleared_count
+status
+```
+
+---
+
+# 51. Scan Records
+
+```text
+id
+session_id
+
+raw_transcript
+
+letters
+numbers
+plate_original
+plate_normalized
+
+confidence
+
+status
+
+wanted
+
+matched_vehicle_id
+dataset_id
+
+latitude
+longitude
+gps_accuracy
+
+processing_time_ms
+
+created_at
+```
+
+---
+
+# 52. Search Optimization
+
+يجب إنشاء Index على:
+
+```text
+plate_normalized
+dataset_id
+wanted
+created_at
+session_id
+```
+
+والبحث عن اللوحة يجب أن يكون O(1)-like indexed lookup وليس Scan كامل للجدول.
+
+---
+
+# 53. Backend
+
+يمكن استخدام:
+
+```text
+Node.js
+TypeScript
+Hono
+PostgreSQL
+```
+
+أو NestJS إذا كان المشروع يحتاج Backend أكبر.
+
+الأولوية ليست لاختيار Framework معين.
+
+الأولوية:
+
+```text
+Low Latency
+Reliability
+Security
+Scalability
+```
+
+---
+
+# 54. API
+
+## Check Plate
+
+```http
+POST /api/v1/plates/check
+```
+
+Request:
+
+```json
+{
+  "letters": "ا هـ ر",
+  "numbers": "2753",
+  "plate": "AHR2753",
+  "datasetId": "..."
+}
+```
+
+Response:
+
+```json
+{
+  "status": "WANTED",
+  "matched": true,
+  "plate": "AHR2753",
+  "vehicle": {
+    "type": "Toyota",
+    "owner": "...",
+    "bank": "..."
+  }
+}
+```
+
+---
+
+# 55. Create Scan
+
+```http
+POST /api/v1/scans
+```
+
+يستقبل:
+
+```json
+{
+  "sessionId": "...",
+  "plate": "AHR2753",
+  "letters": "ا هـ ر",
+  "numbers": "2753",
+  "confidence": 0.98,
+  "latitude": 24.7,
+  "longitude": 46.6
+}
+```
+
+---
+
+# 56. Dataset Upload
+
+```http
+POST /api/v1/datasets/import
+```
+
+يدعم:
+
+```text
+.xlsx
+.xls
+```
+
+حسب المكتبة المستخدمة.
+
+---
+
+# 57. Active Dataset
+
+```http
+GET /api/v1/datasets/active
+```
+
+---
+
+# 58. Session API
+
+```http
+POST /api/v1/sessions
+POST /api/v1/sessions/:id/end
+GET  /api/v1/sessions
+GET  /api/v1/sessions/:id
+```
+
+---
+
+# 59. Offline-First
+
+التطبيق يجب ألا يتوقف إذا انقطع الإنترنت.
+
+أثناء Offline:
+
+```text
+Speech
+↓
+Parse
+↓
+Store locally
+↓
+Display immediately
+↓
+Sync later
+```
+
+---
+
+# 60. Local Database
+
+Flutter يجب أن يحتوي على Local DB.
+
+يمكن استخدام:
+
+```text
+Drift / SQLite
+```
+
+أو حل مناسب آخر.
+
+يجب حفظ:
+
+* Sessions.
+* Scan Records.
+* GPS.
+* Pending Sync Queue.
+
+---
+
+# 61. Sync Queue
+
+كل Scan غير مرسل:
+
+```text
+PENDING
+```
+
+ثم:
+
+```text
+SYNCING
+```
+
+ثم:
+
+```text
+SYNCED
+```
+
+أو:
+
+```text
+FAILED
+```
+
+مع Retry.
+
+---
+
+# 62. Idempotency
+
+كل Scan يجب أن يحتوي على:
+
+```text
+client_scan_id
+```
+
+لمنع Duplicate Records عند إعادة الإرسال.
+
+---
+
+# 63. Security
+
+يجب استخدام:
+
+```text
+HTTPS
+JWT
+Secure Storage
+```
+
+ولا يتم وضع:
+
+* API keys
+* Database credentials
+* AI keys
+
+داخل Flutter application.
+
+---
+
+# 64. AI/STT API Key
+
+إذا تم استخدام Cloud STT:
+
+```text
+Flutter
+ ↓
+Backend / Secure Gateway
+ ↓
+STT Provider
+```
+
+ولا يتم كشف Secret API Key داخل APK.
+
+---
+
+# 65. STT Provider Abstraction
+
+يجب عدم ربط المشروع بمحرك واحد.
+
+أنشئ Interface:
+
+```text
+SpeechRecognitionProvider
+```
+
+مع إمكانية:
+
+```text
+Provider A
+Provider B
+Provider C
+Local Provider
+```
+
+حتى يمكن اختبار عدة محركات.
+
+---
+
+# 66. Provider Benchmark
+
+يجب تسجيل:
+
+```text
+Provider
+Audio Duration
+Transcript
+Correct Plate
+Latency
+Accuracy
+```
+
+ثم مقارنة النتائج.
+
+---
+
+# 67. Required Speech Benchmark
+
+يجب إنشاء Dataset حقيقي يحتوي على:
+
+* 100+ لوحة على الأقل كبداية.
+* عدة متحدثين.
+* لهجة مصرية.
+* سرعات مختلفة.
+* ضوضاء شارع.
+* مسافات مختلفة.
+* نطق طبيعي.
+* نطق سريع.
+
+ويتم حساب:
+
+```text
+Character Accuracy
+Digit Accuracy
+Full Plate Accuracy
+False Positive Rate
+Wanted Detection Accuracy
+Latency
+```
+
+---
+
+# 68. Noise Testing
+
+يجب اختبار:
+
+```text
+Quiet Room
+Street
+Traffic
+Engine Noise
+Wind
+Crowd
+```
+
+---
+
+# 69. Mobile Testing
+
+اختبار على أجهزة حقيقية وليس Emulator فقط.
+
+يجب اختبار:
+
+* Android 10+
+* Microphone permissions
+* Background behavior
+* Screen lock
+* Battery consumption
+* Network switching
+* GPS availability
+
+---
+
+# 70. Latency Requirement
+
+المطلوب:
+
+```text
+Voice → Plate → Screen
+```
+
+بأقل زمن عملي ممكن.
+
+يجب قياس:
+
+```text
+STT latency
+Parser latency
+Database lookup latency
+UI rendering latency
+Total latency
+```
+
+ولا يجوز كتابة:
+
+```text
+<300ms
+```
+
+كحقيقة مضمونة قبل الاختبار.
+
+الهدف يكون:
+
+```text
+As Low As Technically Possible
+```
+
+مع قياس فعلي.
+
+---
+
+# 71. Critical UX Requirement
+
+عندما ينطق المستخدم:
+
+```text
+ألف هاء راء 2753
+```
+
+يجب ألا يشعر أن التطبيق:
+
+```text
+يسجل
+يرفع
+ينتظر
+يعالج
+```
+
+بل يشعر:
+
+```text
+يتكلم
+↓
+اللوحة تظهر فورًا
+```
+
+---
+
+# 72. Error Recovery
+
+إذا كانت النتيجة:
+
+```text
+LOW_CONFIDENCE
+```
+
+لا يظهر أنها صحيحة.
+
+يمكن عرض:
+
+```text
+هل تقصد:
+أ هـ ر 2753؟
+```
+
+لكن يجب ألا يؤدي ذلك إلى تعطيل Continuous Listening.
+
+---
+
+# 73. Noise Filtering
+
+يجب تجاهل كلمات مثل:
+
+```text
+السيارة
+هناك
+شوف
+هذه
+روح
+...
+```
+
+والبحث فقط عن محتوى قابل لأن يكون Plate.
+
+---
+
+# 74. Smart Plate Detection
+
+الـ Parser يجب ألا يبحث فقط عن:
+
+```text
+3 letters + 4 numbers
+```
+
+بل يستخدم:
+
+* Arabic letter dictionary.
+* Number dictionary.
+* Plate format configuration.
+* Context.
+* Confidence.
+* Known plate list.
+
+---
+
+# 75. Important Safety Against False Wanted Alerts
+
+هذه نقطة شديدة الأهمية.
+
+لا يكفي أن تكون اللوحة:
+
+```text
+close match
+```
+
+حتى يصدر النظام إنذارًا قويًا.
+
+يجب تحديد Threshold خاص بـ Wanted Alert.
+
+مثلاً:
+
+```text
+Exact normalized match → Alert
+High-confidence canonical match → Alert حسب السياسة
+Ambiguous match → No strong alert
+```
+
+ويجب أن تكون هذه السياسة Configurable.
+
+---
+
+# 76. Audit Logging
+
+كل عملية مهمة يجب تسجيلها:
+
+```text
+User
+Action
+Timestamp
+Device
+Dataset
+Plate
+Result
+```
+
+خصوصًا:
+
+* Import.
+* Activate Dataset.
+* Wanted Match.
+* Scan.
+* Export.
+
+---
+
+# 77. Admin Dashboard
+
+يمكن إضافة Web Dashboard لاحقًا.
+
+يحتوي على:
+
+```text
+Users
+Datasets
+Sessions
+Scans
+Wanted Vehicles
+Statistics
+```
+
+---
+
+# 78. Statistics
+
+مثال:
+
+```text
+Today's Scans: 1,248
+Wanted: 17
+Cleared: 1,231
+Accuracy: ...
+Average Latency: ...
+```
+
+---
+
+# 79. Architecture
+
+```text
+                 ┌──────────────────────┐
+                 │     Flutter App      │
+                 │                      │
+                 │ Microphone           │
+                 │ VAD                  │
+                 │ Streaming STT        │
+                 │ Plate Parser         │
+                 │ GPS                  │
+                 │ Local SQLite         │
+                 └──────────┬───────────┘
+                            │
+                            │ HTTPS
+                            ▼
+                 ┌──────────────────────┐
+                 │      Backend API     │
+                 │                      │
+                 │ Authentication       │
+                 │ Plate Validation     │
+                 │ Wanted Matching      │
+                 │ Dataset Management   │
+                 │ Sync                  │
+                 └──────────┬───────────┘
+                            │
+              ┌─────────────┴─────────────┐
+              ▼                           ▼
+       ┌──────────────┐          ┌─────────────────┐
+       │ PostgreSQL   │          │ Speech Provider │
+       │              │          │                 │
+       │ Datasets     │          │ Streaming STT   │
+       │ Plates       │          │ Arabic/Egyptian │
+       │ Sessions     │          └─────────────────┘
+       │ Users        │
+       └──────────────┘
+```
+
+---
+
+# 80. Flutter Architecture
+
+Recommended:
+
+```text
+lib/
+├── core/
+│   ├── constants/
+│   ├── errors/
+│   ├── network/
+│   ├── storage/
+│   ├── utils/
+│   └── permissions/
+│
+├── features/
+│   ├── authentication/
+│   ├── scanning/
+│   ├── wanted/
+│   ├── history/
+│   ├── datasets/
+│   └── export/
+│
+├── data/
+├── domain/
+└── presentation/
+```
+
+---
+
+# 81. State Management
+
+Recommended:
+
+```text
+Riverpod
+```
+
+أو:
+
+```text
+Bloc
+```
+
+لكن يجب اختيار واحد فقط وعدم خلط عدة State Management solutions بدون سبب.
+
+---
+
+# 82. Scanning State Machine
+
+يجب أن تكون حالة Scanner واضحة:
+
+```text
+IDLE
+ ↓
+STARTING
+ ↓
+LISTENING
+ ↓
+PROCESSING
+ ↓
+RESULT
+ ↓
+LISTENING
+```
+
+Errors:
+
+```text
+PERMISSION_ERROR
+NETWORK_ERROR
+STT_ERROR
+GPS_ERROR
+PARSER_ERROR
+```
+
+ولا يتم إيقاف الجلسة بسبب خطأ مؤقت.
+
+---
+
+# 83. Permission Handling
+
+قبل بدء الجلسة:
+
+```text
+Microphone Permission
+Location Permission
+Notification Permission
+```
+
+ويتم التعامل مع الرفض بشكل واضح.
+
+---
+
+# 84. Battery Optimization
+
+Continuous listening قد يستهلك البطارية.
+
+لذلك:
+
+* Audio stream optimized.
+* GPS optimized.
+* No unnecessary polling.
+* Batch sync عند الحاجة.
+* Stop resources عند نهاية Session.
+
+---
+
+# 85. Export Requirements
+
+يجب أن يعمل Export حتى لو لم يكن الإنترنت متاحًا، طالما البيانات محفوظة محليًا.
+
+---
+
+# 86. Data Privacy
+
+بيانات السيارات والمالكين قد تكون حساسة.
+
+لذلك:
+
+* Encryption at rest حيث يلزم.
+* Secure authentication.
+* HTTPS.
+* Access control.
+* No unnecessary data exposure.
+* Secure local storage.
+* Audit logs.
+
+---
+
+# 87. Performance Rules for AI Developer
+
+الـ AI المبرمج ممنوع من:
+
+* بناء Prototype شكلي وتسميته Production.
+* وضع API keys داخل التطبيق.
+* استخدام Fake Data بدل Excel الحقيقي.
+* Hardcode لأرقام اللوحات.
+* الاعتماد على Regex فقط لمعالجة Speech.
+* تجاهل اللهجة المصرية.
+* إيقاف Continuous Listening بعد كل لوحة.
+* انتظار اكتمال Recording طويل قبل المعالجة.
+* تنفيذ Full Database Scan عند كل لوحة.
+* حذف البيانات القديمة بدون Versioning.
+* تجاهل Offline.
+* تجاهل GPS.
+* تجاهل Duplicate Scans.
+* إصدار Wanted Alert بسبب Match ضعيف.
+
+---
+
+# 88. Required Development Strategy
+
+لا تبدأ ببناء كل Features مرة واحدة.
+
+## Phase 0 — Feasibility
+
+الأولوية:
+
+```text
+Speech → Plate
+```
+
+فقط.
+
+يجب إثبات:
+
+```text
+Egyptian Arabic
++
+Natural Speech
++
+Fast Speech
++
+Street Noise
+```
+
+---
+
+# 89. Phase 0 Deliverable
+
+Prototype يحتوي فقط على:
+
+```text
+Microphone
+↓
+Streaming STT
+↓
+Plate Parser
+↓
+Result
+```
+
+ويتم تجربة عدة Speech Engines.
+
+---
+
+# 90. Phase 0 Acceptance Test
+
+يتم تسجيل مجموعة حقيقية من اللوحات.
+
+لكل لوحة:
+
+```text
+Expected Plate
+Actual Plate
+Latency
+Correct?
+```
+
+ثم يتم حساب النتيجة.
+
+إذا لم تحقق النتيجة المطلوبة:
+
+```text
+DO NOT proceed blindly to full application.
+```
+
+بل يتم تحسين Speech Pipeline.
+
+---
+
+# 91. Phase 1
+
+بناء Flutter UI:
+
+```text
+Dark Theme
+Bottom Navigation
+Scan Screen
+Microphone
+Audio Visualization
+Results Table
+```
+
+---
+
+# 92. Phase 2
+
+إضافة:
+
+```text
+GPS
+Sessions
+Local Database
+Offline Queue
+```
+
+---
+
+# 93. Phase 3
+
+Backend:
+
+```text
+Auth
+Dataset
+Wanted Vehicles
+Plate Matching
+Sessions
+Sync
+```
+
+---
+
+# 94. Phase 4
+
+Excel:
+
+```text
+Import
+Multiple Sheets
+Mapping
+Normalization
+Validation
+Activation
+Versioning
+```
+
+---
+
+# 95. Phase 5
+
+Wanted Detection:
+
+```text
+Exact Match
+Visual Alert
+Audio Alert
+Haptic
+Vehicle Details
+```
+
+---
+
+# 96. Phase 6
+
+Export:
+
+```text
+Session → Excel
+```
+
+---
+
+# 97. Phase 7
+
+Full QA:
+
+```text
+Speech Accuracy
+Noise
+Latency
+GPS
+Offline
+Sync
+Excel
+Wanted Matching
+Security
+Performance
+Battery
+```
+
+---
+
+# 98. Final Acceptance Criteria
+
+## Test 1
+
+Given:
+
+```text
+Listening Session
+```
+
+When:
+
+```text
+User speaks a valid plate
+```
+
+Then:
+
+```text
+Plate appears automatically
+```
+
+---
+
+## Test 2
+
+Given:
+
+```text
+Plate exists in active Excel dataset
+```
+
+When:
+
+```text
+User speaks it
+```
+
+Then:
+
+```text
+Wanted alert appears immediately.
+```
+
+---
+
+## Test 3
+
+Given:
+
+```text
+Internet unavailable
+```
+
+When:
+
+```text
+User scans plate
+```
+
+Then:
+
+```text
+Plate is stored locally.
+```
+
+---
+
+## Test 4
+
+When:
+
+```text
+Internet returns
+```
+
+Then:
+
+```text
+Pending scans synchronize automatically.
+```
+
+---
+
+## Test 5
+
+When:
+
+```text
+Session ends
+```
+
+Then:
+
+```text
+User can export complete session to Excel.
+```
+
+---
+
+# 99. Most Important Acceptance Criterion
+
+The application is NOT accepted based on:
+
+```text
+UI completed
+API completed
+Database completed
+```
+
+It is accepted based primarily on:
+
+```text
+Real-world voice recognition accuracy
++
+Real-world latency
++
+Wanted detection reliability
+```
+
+---
+
+# 100. Mandatory Real-World Demo
+
+قبل التسليم النهائي يجب إجراء اختبار في نفس البيئة التي سيستخدم فيها التطبيق:
+
+```text
+Phone in hand
+Street environment
+Moving vehicles
+Natural Egyptian Arabic
+Fast pronunciation
+Background noise
+Continuous scanning
+```
+
+ثم مقارنة:
+
+```text
+Spoken Plate
+vs
+Detected Plate
+```
+
+---
+
+# 101. Metrics Dashboard
+
+أثناء الاختبار يجب تسجيل:
+
+```text
+Total Plates
+Correct Plates
+Wrong Plates
+Missed Plates
+Wanted Correct
+Wanted Missed
+False Wanted Alerts
+Average Latency
+P95 Latency
+P99 Latency
+```
+
+---
+
+# 102. Production Quality Gate
+
+لا يتم اعتبار المشروع جاهزًا إذا:
+
+```text
+False Wanted Alerts are unacceptable
+OR
+Plate Recognition Accuracy is below agreed threshold
+OR
+Latency prevents real-world usage
+OR
+Egyptian speech performance is poor
+```
+
+---
+
+# 103. Final Product Goal
+
+المستخدم يجب أن يشعر بالتجربة التالية:
+
+```text
+أضغط الميكروفون مرة واحدة
+        ↓
+يبدأ الاستماع
+        ↓
+أشاهد سيارة
+        ↓
+أنطق:
+"ألف هاء راء 2753"
+        ↓
+اللوحة تظهر فورًا
+        ↓
+التطبيق يبحث عنها
+        ↓
+إذا كانت مطلوبة:
+🚨 تنبيه قوي
+        ↓
+أنتقل للسيارة التالية
+        ↓
+أنطق اللوحة التالية
+        ↓
+التطبيق يستمر بدون توقف
+```
+
+هذه هي التجربة الأساسية التي يجب أن يدور حولها التصميم بالكامل.
+
+---
+
+# 104. Final AI Coding Instructions
+
+You are a Senior Flutter, Backend, Speech Recognition and Database Engineer.
+
+Do not treat this project as a normal CRUD application.
+
+The core challenge is real-time Arabic speech recognition of vehicle license plates, especially Egyptian Arabic speech in noisy outdoor environments.
+
+Before implementing the complete product:
+
+1. Build a speech recognition proof-of-concept.
+2. Test multiple STT providers.
+3. Test real Egyptian Arabic recordings.
+4. Measure plate-level accuracy.
+5. Measure end-to-end latency.
+6. Build a robust Arabic plate normalization and parsing layer.
+7. Only proceed to full application development after the speech pipeline reaches the agreed practical accuracy target.
+
+The application must use continuous listening.
+
+Do not require the user to press the microphone for every plate.
+
+The parser must support:
+
+* Arabic letters.
+* Arabic numerals.
+* Western numerals.
+* Spoken Arabic numbers.
+* Egyptian pronunciation variants.
+* Configurable plate formats.
+* Noise words.
+* Partial speech results.
+
+The application must integrate:
+
+* GPS.
+* Excel import.
+* Multiple Excel sheets.
+* Dataset versioning.
+* Wanted vehicle matching.
+* Strong audio alerts.
+* Visual alerts.
+* Haptic alerts.
+* Session management.
+* Local offline storage.
+* Background synchronization.
+* Excel export.
+
+Never hardcode the customer's Excel structure.
+
+Never expose API secrets in the mobile application.
+
+Never use a single raw STT transcript as the final truth without normalization and validation.
+
+Never silently convert an uncertain plate into a wanted plate.
+
+Every critical operation must be measurable and testable.
+
+The final implementation must prioritize:
+
+1. Accuracy.
+2. Latency.
+3. Reliability.
+4. Wanted-match correctness.
+5. Offline resilience.
+6. Security.
+7. Maintainability.
+8. UI polish.
+
+The UI is secondary to speech accuracy and real-world usability.
+
+---
+
+# 105. Required Project Deliverables
+
+The development team/AI must deliver:
+
+* Complete Flutter application.
+* Complete backend.
+* Database schema and migrations.
+* Excel importer.
+* Excel exporter.
+* Speech Recognition abstraction.
+* Plate parser.
+* Arabic normalization engine.
+* GPS integration.
+* Wanted detection.
+* Continuous listening.
+* Offline storage.
+* Sync engine.
+* Authentication.
+* Session management.
+* History.
+* Alerts.
+* Tests.
+* Performance benchmarks.
+* Speech benchmark dataset tooling.
+* Deployment configuration.
+* Environment configuration.
+* Documentation.
+
+---
+
+# 106. CRITICAL NEXT STEP
+
+The actual Excel file supplied by the client must be treated as a source of truth for the data model.
+
+Before finalizing the database schema:
+
+1. Inspect every Sheet.
+2. Detect all columns.
+3. Identify the plate column.
+4. Identify vehicle information columns.
+5. Identify owner/bank fields.
+6. Identify duplicates.
+7. Identify empty values.
+8. Identify different plate formats.
+9. Identify Arabic/English numeral usage.
+10. Build the importer around the actual structure.
+
+Do NOT invent the Excel schema.
+
+The real file must be analyzed before implementation.
+
+---
+
+# 107. Final Product Principle
+
+The project should not be approached as:
+
+"Build a microphone app."
+
+It should be approached as:
+
+"Build a real-time voice-driven vehicle plate recognition and wanted-vehicle detection system optimized for field operation."
+
+The microphone is only the input.
+
+The actual product is:
+
+```text
+Speech
+→ Recognition
+→ Normalization
+→ Plate Extraction
+→ Validation
+→ Matching
+→ GPS Capture
+→ Instant Alert
+→ Persistent Record
+→ Excel Export
+```
+
+The success of the project depends primarily on the reliability and speed of this complete pipeline.

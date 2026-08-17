@@ -1,0 +1,297 @@
+{
+  "datasets": [
+    {
+      "id": "dataset-initial-1786980971105",
+      "name": "قاعدة المطلوبين الرئيسية (ملف العميل)",
+      "filename": "file.xlsx",
+      "version": 1,
+      "status": "ACTIVE",
+      "totalSheets": 2,
+      "totalRows": 72753,
+      "totalRecords": 67750,
+      "duplicateCount": 11269,
+      "sheets": [
+        {
+          "sheetName": "تسجيل",
+          "totalRows": 4999,
+          "validRecords": 0,
+          "headers": [
+            "اللوحة",
+            "النوع",
+            "المعادلة",
+            "النوع",
+            "البنك",
+            "الشاص"
+          ],
+          "detectedMapping": {
+            "plateColumn": "اللوحة",
+            "typeColumn": "النوع",
+            "bankColumn": "البنك",
+            "vinColumn": "الشاص"
+          }
+        },
+        {
+          "sheetName": "تشييك",
+          "totalRows": 67754,
+          "validRecords": 67750,
+          "headers": [
+            "اللوحه",
+            "النوع",
+            "البنك",
+            "الهيكل"
+          ],
+          "detectedMapping": {
+            "plateColumn": "اللوحه",
+            "typeColumn": "النوع",
+            "bankColumn": "البنك",
+            "vinColumn": "الهيكل"
+          }
+        }
+      ],
+      "dataFile": "dataset-initial-1786980971105.json",
+      "uploadedBy": "النظام",
+      "uploadedAt": "2026-08-17T15:36:18.444Z",
+      "activatedAt": "2026-08-17T15:36:18.447Z"
+    }
+  ],
+  "activeDatasetId": "dataset-initial-1786980971105",
+  "sessions": [
+    {
+      "id": "SES-1786981975043",
+      "name": "جلسة ١٧‏/٨‏/٢٠٢٦ - ٦:٥٢:٥٥ م",
+      "startedAt": "2026-08-17T15:52:55.085Z",
+      "endedAt": "2026-08-17T15:52:55.092Z",
+      "status": "COMPLETED",
+      "totalScans": 4,
+      "wantedCount": 2,
+      "clearedCount": 2,
+      "operator": "المشغل الميداني التجريبي",
+      "notes": ""
+    },
+    {
+      "id": "SES-1786981949617",
+      "name": "جلسة ١٧‏/٨‏/٢٠٢٦ - ٦:٥٢:٢٩ م",
+      "startedAt": "2026-08-17T15:52:29.663Z",
+      "endedAt": "2026-08-17T15:52:29.713Z",
+      "status": "COMPLETED",
+      "totalScans": 1,
+      "wantedCount": 1,
+      "clearedCount": 0,
+      "operator": "مختبر الجودة",
+      "notes": ""
+    },
+    {
+      "id": "SES-1786981183236",
+      "name": "جلسة ١٧‏/٨‏/٢٠٢٦ - ٦:٣٩:٤٣ م",
+      "startedAt": "2026-08-17T15:39:43.403Z",
+      "endedAt": "2026-08-17T15:39:43.474Z",
+      "status": "COMPLETED",
+      "totalScans": 1,
+      "wantedCount": 1,
+      "clearedCount": 0,
+      "operator": "مختبر الجودة",
+      "notes": ""
+    }
+  ],
+  "scans": [
+    {
+      "id": "scan-1786981975091-kbsj3",
+      "sessionId": "SES-1786981975043",
+      "rawTranscript": "ديل الف دال 2 5 2 4",
+      "letters": "د ا د",
+      "numbers": "2524",
+      "plateDisplay": "د ا د 2524",
+      "canonicalPlate": "داد2524",
+      "confidence": 0.98,
+      "status": "CLEARED",
+      "wanted": false,
+      "matchedVehicle": null,
+      "latitude": 24.7166,
+      "longitude": 46.6783,
+      "gpsAccuracy": 5,
+      "processingTimeMs": 150,
+      "capturedAt": "2026-08-17T15:52:55.091Z"
+    },
+    {
+      "id": "scan-1786981975090-j23ww",
+      "sessionId": "SES-1786981975043",
+      "rawTranscript": "ركد 9678",
+      "letters": "ر ك د",
+      "numbers": "9678",
+      "plateDisplay": "ر ك د 9678",
+      "canonicalPlate": "ركد9678",
+      "confidence": 0.98,
+      "status": "WANTED",
+      "wanted": true,
+      "matchedVehicle": {
+        "id": "veh-dataset-initial-1786980971105-تشييك-58398",
+        "plateOriginal": "ركد9678",
+        "vehicleType": "Taurus",
+        "bank": "اشرف جمال",
+        "vin": "",
+        "sheetName": "تشييك",
+        "rowNumber": 58399
+      },
+      "latitude": 24.7156,
+      "longitude": 46.6773,
+      "gpsAccuracy": 5,
+      "processingTimeMs": 150,
+      "capturedAt": "2026-08-17T15:52:55.090Z"
+    },
+    {
+      "id": "scan-1786981975089-1u7wc",
+      "sessionId": "SES-1786981975043",
+      "rawTranscript": "ألف هاء راء 2753",
+      "letters": "ا ه ر",
+      "numbers": "2753",
+      "plateDisplay": "ا ه ر 2753",
+      "canonicalPlate": "اهر2753",
+      "confidence": 0.98,
+      "status": "CLEARED",
+      "wanted": false,
+      "matchedVehicle": null,
+      "latitude": 24.7146,
+      "longitude": 46.6763,
+      "gpsAccuracy": 5,
+      "processingTimeMs": 150,
+      "capturedAt": "2026-08-17T15:52:55.089Z"
+    },
+    {
+      "id": "scan-1786981975088-ftw83",
+      "sessionId": "SES-1786981975043",
+      "rawTranscript": "اسب 2175",
+      "letters": "ا س ب",
+      "numbers": "2175",
+      "plateDisplay": "ا س ب 2175",
+      "canonicalPlate": "اسب2175",
+      "confidence": 0.98,
+      "status": "WANTED",
+      "wanted": true,
+      "matchedVehicle": {
+        "id": "veh-dataset-initial-1786980971105-تشييك-1",
+        "plateOriginal": "اسب2175",
+        "vehicleType": "شاحنة",
+        "bank": "طلال السديس",
+        "vin": "KLUKH2T41PK000154",
+        "sheetName": "تشييك",
+        "rowNumber": 2
+      },
+      "latitude": 24.7136,
+      "longitude": 46.6753,
+      "gpsAccuracy": 5,
+      "processingTimeMs": 150,
+      "capturedAt": "2026-08-17T15:52:55.088Z"
+    },
+    {
+      "id": "scan-1786981949665-lqs8b",
+      "sessionId": "SES-1786981949617",
+      "rawTranscript": "",
+      "letters": "ا س ب",
+      "numbers": "2175",
+      "plateDisplay": "ا س ب 2175",
+      "canonicalPlate": "اسب2175",
+      "confidence": 0.98,
+      "status": "WANTED",
+      "wanted": true,
+      "matchedVehicle": {
+        "id": "veh-dataset-initial-1786980971105-تشييك-1",
+        "plateOriginal": "اسب2175",
+        "vehicleType": "شاحنة",
+        "bank": "طلال السديس",
+        "vin": "KLUKH2T41PK000154",
+        "sheetName": "تشييك",
+        "rowNumber": 2
+      },
+      "latitude": 24.7136,
+      "longitude": 46.6753,
+      "gpsAccuracy": 5,
+      "processingTimeMs": 150,
+      "capturedAt": "2026-08-17T15:52:29.665Z"
+    },
+    {
+      "id": "scan-1786981183405-o7eln",
+      "sessionId": "SES-1786981183236",
+      "rawTranscript": "",
+      "letters": "ا س ب",
+      "numbers": "2175",
+      "plateDisplay": "ا س ب 2175",
+      "canonicalPlate": "اسب2175",
+      "confidence": 0.98,
+      "status": "WANTED",
+      "wanted": true,
+      "matchedVehicle": {
+        "id": "veh-dataset-initial-1786980971105-تشييك-1",
+        "plateOriginal": "اسب2175",
+        "vehicleType": "شاحنة",
+        "bank": "طلال السديس",
+        "vin": "KLUKH2T41PK000154",
+        "sheetName": "تشييك",
+        "rowNumber": 2
+      },
+      "latitude": 24.7136,
+      "longitude": 46.6753,
+      "gpsAccuracy": 5,
+      "processingTimeMs": 150,
+      "capturedAt": "2026-08-17T15:39:43.405Z"
+    }
+  ],
+  "auditLogs": [
+    {
+      "id": "log-1786981975090",
+      "action": "WANTED_DETECTED",
+      "details": "⚠️ لوحة مطلوبة: ر ك د 9678 (Taurus - اشرف جمال)",
+      "timestamp": "2026-08-17T15:52:55.090Z"
+    },
+    {
+      "id": "log-1786981975088",
+      "action": "WANTED_DETECTED",
+      "details": "⚠️ لوحة مطلوبة: ا س ب 2175 (شاحنة - طلال السديس)",
+      "timestamp": "2026-08-17T15:52:55.088Z"
+    },
+    {
+      "id": "log-1786981975086",
+      "action": "START_SESSION",
+      "details": "بدء جلسة مسح صوتي جديدة: SES-1786981975043",
+      "timestamp": "2026-08-17T15:52:55.086Z"
+    },
+    {
+      "id": "log-1786981949666",
+      "action": "WANTED_DETECTED",
+      "details": "⚠️ لوحة مطلوبة: ا س ب 2175 (شاحنة - طلال السديس)",
+      "timestamp": "2026-08-17T15:52:29.666Z"
+    },
+    {
+      "id": "log-1786981949664",
+      "action": "START_SESSION",
+      "details": "بدء جلسة مسح صوتي جديدة: SES-1786981949617",
+      "timestamp": "2026-08-17T15:52:29.664Z"
+    },
+    {
+      "id": "log-1786981183406",
+      "action": "WANTED_DETECTED",
+      "details": "⚠️ لوحة مطلوبة: ا س ب 2175 (شاحنة - طلال السديس)",
+      "timestamp": "2026-08-17T15:39:43.406Z"
+    },
+    {
+      "id": "log-1786981183404",
+      "action": "START_SESSION",
+      "details": "بدء جلسة مسح صوتي جديدة: SES-1786981183236",
+      "timestamp": "2026-08-17T15:39:43.404Z"
+    },
+    {
+      "id": "log-1786980978446",
+      "action": "IMPORT_DATASET",
+      "details": "استيراد قائمة جديدة (قاعدة المطلوبين الرئيسية (ملف العميل)) بإجمالي 67750 سيارة مطلوبة.",
+      "timestamp": "2026-08-17T15:36:18.446Z"
+    }
+  ],
+  "settings": {
+    "language": "ar-EG",
+    "soundAlert": true,
+    "hapticAlert": true,
+    "fastMode": true,
+    "minConfidence": 0.75,
+    "alertThreshold": "EXACT_MATCH",
+    "autoSync": true
+  }
+}
