@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
+import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'package:permission_handler/permission_handler.dart';
 import 'package:boabat_alarabi/core/plate_engine.dart';
 
 // Render Cloud Backend URL (Source of Truth)
@@ -231,7 +233,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     } catch (_) {}
 
     setState(() {
-      _scans.add(newScan); // Appends to list (Row numbering 1, 2, 3, 4)
+      _scans.add(newScan);
     });
 
     if (isWanted) {
@@ -327,7 +329,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
-            // 1. مطلوب Tab (Right in RTL)
+            // 1. مطلوب Tab
             InkWell(
               onTap: () => setState(() => _currentIndex = 0),
               child: Column(
@@ -395,7 +397,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
               ),
             ),
 
-            // 3. الكل Tab (Left in RTL)
+            // 3. الكل Tab
             InkWell(
               onTap: () => setState(() => _currentIndex = 2),
               child: Column(
@@ -425,7 +427,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   }
 }
 
-// 1. SCAN MAIN SCREEN — Pixel-Perfect Matching to Reference Screenshot 2
+// 1. SCAN MAIN SCREEN — 100% Direct Microphone Audio Recognition (No Text Input Popups)
 class ScanMainScreen extends StatefulWidget {
   final List<Map<String, dynamic>> scans;
   final Function(String) onAddScan;
@@ -449,9 +451,124 @@ class ScanMainScreen extends StatefulWidget {
 }
 
 class _ScanMainScreenState extends State<ScanMainScreen> {
-  bool _isListening = true; // Active listening state shown in reference screenshot
-  String _liveSpokenText = 'ايوه ي و س 2 6 2 6';
-  final TextEditingController _inputController = TextEditingController();
+  final stt.SpeechToText _speech = stt.SpeechToText();
+  bool _isListening = false;
+  bool _speechAvailable = false;
+  String _liveSpokenText = 'جاهز للاستماع... اضغط لبدء الفحص الصوتي';
+  String _audioQuality = 'متوسط';
+  double _soundLevel = 0.5;
+
+  @override
+  void initState() {
+    super.initState();
+    _initSpeech();
+  }
+
+  Future<void> _initSpeech() async {
+    try {
+      final status = await Permission.microphone.request();
+      if (status.isGranted) {
+        _speechAvailable = await _speech.initialize(
+          onStatus: (status) {
+            debugPrint('Speech Status: $status');
+            if (status == 'listening') {
+              setState(() => _isListening = true);
+            } else if (status == 'notListening' || status == 'done') {
+              if (_isListening) {
+                // Auto-restart continuous listening
+                _startListeningDirectly();
+              }
+            }
+          },
+          onError: (error) {
+            debugPrint('Speech Error: ${error.errorMsg}');
+          },
+        );
+      }
+    } catch (e) {
+      debugPrint('Speech init exception: $e');
+    }
+  }
+
+  Future<void> _toggleListening() async {
+    if (_isListening) {
+      setState(() {
+        _isListening = false;
+        _liveSpokenText = 'تم إيقاف الاستماع الصوتي مؤقتًا';
+      });
+      await _speech.stop();
+    } else {
+      await _startListeningDirectly();
+    }
+  }
+
+  Future<void> _startListeningDirectly() async {
+    final status = await Permission.microphone.request();
+    if (!status.isGranted) {
+      setState(() => _liveSpokenText = 'يرجى منح إذن الميكروفون للبدء');
+      return;
+    }
+
+    if (!_speechAvailable) {
+      _speechAvailable = await _speech.initialize();
+    }
+
+    setState(() {
+      _isListening = true;
+      _liveSpokenText = 'يستمع الآن... تفضل بنطق لوحات السيارات';
+    });
+
+    try {
+      await _speech.listen(
+        localeId: 'ar_EG', // Egyptian Dialect support as requested
+        listenMode: stt.ListenMode.dictation,
+        partialResults: true,
+        onSoundLevelChange: (level) {
+          setState(() {
+            _soundLevel = (level / 100.0).clamp(0.1, 1.0);
+            _audioQuality = level > 60 ? 'قوي' : (level > 25 ? 'متوسط' : 'هادئ');
+          });
+        },
+        onResult: (result) {
+          final words = result.recognizedWords;
+          if (words.isNotEmpty) {
+            setState(() {
+              _liveSpokenText = words;
+            });
+
+            // Parse & Validate Plate with Confidence Engine
+            if (result.finalResult || words.split(' ').length >= 3) {
+              _validateAndProcessSpeech(words);
+            }
+          }
+        },
+      );
+    } catch (e) {
+      debugPrint('Speech listen error: $e');
+    }
+  }
+
+  void _validateAndProcessSpeech(String rawSpeech) {
+    final candidates = FlutterPlateEngine.parse(rawSpeech);
+    if (candidates.isNotEmpty) {
+      for (final candidate in candidates) {
+        // Validation Layer: Must have valid letters + valid digits + confidence
+        if (candidate.letters.isNotEmpty && candidate.numbers.isNotEmpty && candidate.confidence >= 0.8) {
+          // Check if already processed recently
+          final exists = widget.scans.any((s) => s['canonical'] == candidate.canonicalPlate && s['time'] == 'الآن');
+          if (!exists) {
+            widget.onAddScan(rawSpeech);
+          }
+        }
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _speech.stop();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -462,7 +579,7 @@ class _ScanMainScreenState extends State<ScanMainScreen> {
           children: [
             const SizedBox(height: 8),
 
-            // --- Top App Bar matching Screenshot 2 ---
+            // --- Top App Bar ---
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -505,7 +622,7 @@ class _ScanMainScreenState extends State<ScanMainScreen> {
 
             const SizedBox(height: 14),
 
-            // --- Main Voice Control Card matching Screenshot 2 ---
+            // --- Main Direct Voice Control Card ---
             Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
@@ -516,7 +633,7 @@ class _ScanMainScreenState extends State<ScanMainScreen> {
               ),
               child: Column(
                 children: [
-                  // Cyan Button: '⏹ إيقاف الجلسة الصوتية'
+                  // Direct Voice Action Button (Cyan Button)
                   SizedBox(
                     width: double.infinity,
                     height: 52,
@@ -529,12 +646,7 @@ class _ScanMainScreenState extends State<ScanMainScreen> {
                           borderRadius: BorderRadius.circular(26),
                         ),
                       ),
-                      onPressed: () {
-                        setState(() => _isListening = !_isListening);
-                        if (_isListening) {
-                          _showInputBottomSheet();
-                        }
-                      },
+                      onPressed: _toggleListening,
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -574,7 +686,7 @@ class _ScanMainScreenState extends State<ScanMainScreen> {
 
                   const SizedBox(height: 6),
 
-                  // Live Transcript: 'ايوه ي و س 2 6 2 6'
+                  // Live Recognized Transcript (Transforms speech into text automatically)
                   Text(
                     _liveSpokenText,
                     style: const TextStyle(
@@ -582,6 +694,7 @@ class _ScanMainScreenState extends State<ScanMainScreen> {
                       fontWeight: FontWeight.w500,
                       color: Color(0xFFCBD5E1),
                     ),
+                    textAlign: TextAlign.center,
                   ),
 
                   const SizedBox(height: 14),
@@ -589,7 +702,7 @@ class _ScanMainScreenState extends State<ScanMainScreen> {
                   // Audio Level Visualizer Bar: [متوسط] --------------------- [الصوت]
                   Row(
                     children: [
-                      // Badge: 'متوسط'
+                      // Badge: 'متوسط' / 'قوي'
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
                         decoration: BoxDecoration(
@@ -597,9 +710,9 @@ class _ScanMainScreenState extends State<ScanMainScreen> {
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(color: const Color(0xFF2BF0C4), width: 1.2),
                         ),
-                        child: const Text(
-                          'متوسط',
-                          style: TextStyle(
+                        child: Text(
+                          _audioQuality,
+                          style: const TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.bold,
                             color: Color(0xFF2BF0C4),
@@ -619,7 +732,7 @@ class _ScanMainScreenState extends State<ScanMainScreen> {
                           ),
                           child: FractionallySizedBox(
                             alignment: Alignment.centerLeft,
-                            widthFactor: 0.65,
+                            widthFactor: _isListening ? _soundLevel : 0.4,
                             child: Container(
                               decoration: BoxDecoration(
                                 color: const Color(0xFF2BF0C4),
@@ -655,7 +768,7 @@ class _ScanMainScreenState extends State<ScanMainScreen> {
 
             const SizedBox(height: 14),
 
-            // --- Real Results Table Card matching Screenshot 2 EXACTLY ---
+            // --- Real Results Table Card with Separated Columns ---
             Expanded(
               child: Container(
                 width: double.infinity,
@@ -793,7 +906,7 @@ class _ScanMainScreenState extends State<ScanMainScreen> {
                                         ),
                                       ),
 
-                                      // 3. Column الأرقام: e.g. "5758", "2727", "7747", "6262" (Cyan color)
+                                      // 3. Column الأرقام: e.g. "5758", "2727", "7747", "6262"
                                       Expanded(
                                         flex: 3,
                                         child: Text(
@@ -808,7 +921,7 @@ class _ScanMainScreenState extends State<ScanMainScreen> {
                                         ),
                                       ),
 
-                                      // 4. Column الحالة: Green Check Circle for Cleared / Red Warning for Wanted
+                                      // 4. Column الحالة
                                       Expanded(
                                         flex: 2,
                                         child: Center(
@@ -853,61 +966,6 @@ class _ScanMainScreenState extends State<ScanMainScreen> {
             ),
 
             const SizedBox(height: 12),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showInputBottomSheet() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF0F1829),
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom, left: 16, right: 16, top: 16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('نطق أو إدخال اللوحة', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _inputController,
-              autofocus: true,
-              decoration: InputDecoration(
-                hintText: 'انطق أو اكتب مثلاً: ر ب ط 5758 أو اسب 2175',
-                filled: true,
-                fillColor: const Color(0xFF070B14),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              onSubmitted: (val) {
-                if (val.trim().isNotEmpty) {
-                  setState(() => _liveSpokenText = val.trim());
-                  widget.onAddScan(val.trim());
-                  _inputController.clear();
-                  Navigator.pop(ctx);
-                }
-              },
-            ),
-            const SizedBox(height: 12),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2BF0C4),
-                foregroundColor: const Color(0xFF070B14),
-                minimumSize: const Size(double.infinity, 48),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              onPressed: () {
-                if (_inputController.text.trim().isNotEmpty) {
-                  setState(() => _liveSpokenText = _inputController.text.trim());
-                  widget.onAddScan(_inputController.text.trim());
-                  _inputController.clear();
-                  Navigator.pop(ctx);
-                }
-              },
-              child: const Text('فحص فوري في قاعدة البيانات', style: TextStyle(fontWeight: FontWeight.bold)),
-            ),
-            const SizedBox(height: 16),
           ],
         ),
       ),
