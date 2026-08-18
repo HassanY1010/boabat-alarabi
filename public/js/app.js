@@ -245,9 +245,10 @@ class AppController {
         this.updateActiveDatasetDisplay(msg.payload.activeDataset);
       }
     } else if (msg.type === 'NEW_SCAN') {
-      // If scan came from another operator or background sync
+      // If scan came from another operator or background sync (do not duplicate if already present)
       const scan = msg.payload;
-      if (!this.sessionScans.find(s => s.id === scan.id)) {
+      const alreadyExists = this.sessionScans.some(s => s.id === scan.id || s.canonicalPlate === scan.canonicalPlate && Math.abs(new Date(s.capturedAt) - new Date(scan.capturedAt)) < 3000);
+      if (!alreadyExists) {
         this.addScanToUI(scan);
       }
     } else if (msg.type === 'DATASET_ACTIVATED') {

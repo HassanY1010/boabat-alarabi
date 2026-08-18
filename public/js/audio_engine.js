@@ -35,25 +35,24 @@ class AudioEngine {
     this.recognition.maxAlternatives = 3;
 
     this.recognition.onresult = (event) => {
-      let interimTranscript = '';
-      let finalTranscript = '';
-
+      let activeText = '';
       for (let i = event.resultIndex; i < event.results.length; ++i) {
-        const transcript = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
-          finalTranscript += transcript + ' ';
-        } else {
-          interimTranscript += transcript;
+        const res = event.results[i];
+        for (let a = 0; a < res.length; a++) {
+          const t = res[a].transcript.trim();
+          if (t) {
+            activeText += ' ' + t;
+          }
         }
       }
 
-      const activeText = (finalTranscript + ' ' + interimTranscript).trim();
+      activeText = activeText.trim();
       if (activeText) {
         if (this.onTranscriptUpdate) {
           this.onTranscriptUpdate(activeText);
         }
 
-        // Parse candidates immediately (Streaming/Partial Parsing)
+        // Parse plate candidates across all streaming alternatives
         const candidates = window.clientPlateParser.parsePlateTranscript(activeText);
         if (candidates.length > 0 && this.onPlateDetected) {
           candidates.forEach(c => this.onPlateDetected(c, activeText));
