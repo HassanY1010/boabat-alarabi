@@ -598,6 +598,26 @@ class _ScanMainScreenState extends State<ScanMainScreen> {
     }
   }
 
+  Widget _buildQuickChip(String label, String phrase) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 6.0),
+      child: ActionChip(
+        backgroundColor: const Color(0xFF132238),
+        side: const BorderSide(color: Color(0xFF1F3554)),
+        label: Text(
+          label,
+          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF2BF0C4)),
+        ),
+        onPressed: () {
+          setState(() {
+            _liveSpokenText = phrase;
+          });
+          widget.onAddScan(phrase);
+        },
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _speech.stop();
@@ -731,6 +751,27 @@ class _ScanMainScreenState extends State<ScanMainScreen> {
                     textAlign: TextAlign.center,
                   ),
 
+                  const SizedBox(height: 10),
+
+                  // --- Quick Dialect Test Chips matching Video ---
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _buildQuickChip('د ا د 2524', 'د ا د 2524'),
+                        _buildQuickChip('د ب ك 2121', 'د ب ك 2121'),
+                        _buildQuickChip('د ر ص 2828', 'د ر ص 2828'),
+                        _buildQuickChip('د ع د 5151', 'د ع د 5151'),
+                        _buildQuickChip('د ر ب 2727', 'د ر ب 2727'),
+                        _buildQuickChip('د ك ن 2727', 'د ك ن 2727'),
+                        _buildQuickChip('د و ع 5151', 'د و ع 5151'),
+                        _buildQuickChip('د ر ب 2323', 'د ر ب 2323'),
+                        _buildQuickChip('ي ص ن 0505', 'ي ص ن 0505'),
+                        _buildQuickChip('🚨 اسب 2175 (مطلوبة)', 'اسب 2175'),
+                      ],
+                    ),
+                  ),
+                  
                   const SizedBox(height: 14),
 
                   // Audio Level Visualizer Bar: [متوسط] --------------------- [الصوت]
