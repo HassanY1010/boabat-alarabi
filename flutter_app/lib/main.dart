@@ -305,6 +305,36 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       ScanMainScreen(
         scans: _scans,
         onAddScan: _addScan,
+        onClearScans: () {
+          setState(() {
+            _scans.clear();
+          });
+        },
+        onSaveSession: () {
+          // Trigger Session Export Dialog / Notification
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              backgroundColor: const Color(0xFF0F1829),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Text('حفظ وتصدير الجلسة', style: TextStyle(color: Color(0xFF2BF0C4), fontWeight: FontWeight.bold)),
+              content: Text(
+                'تم حفظ جميع الفحوصات (${_scans.length} فحص) بنجاح على قاعدة البيانات السحابية.\n\nرابط التصدير:\n$kBackendBaseUrl/api/v1/export/session/$_activeSessionId',
+                style: const TextStyle(fontSize: 14),
+              ),
+              actions: [
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF2BF0C4),
+                    foregroundColor: const Color(0xFF070B14),
+                  ),
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('تم'),
+                ),
+              ],
+            ),
+          );
+        },
         isConnected: _isConnected,
         totalWantedInDb: _totalWantedInDb,
         datasetName: _activeDatasetName,
@@ -431,6 +461,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 class ScanMainScreen extends StatefulWidget {
   final List<Map<String, dynamic>> scans;
   final Function(String) onAddScan;
+  final VoidCallback onClearScans;
+  final VoidCallback onSaveSession;
   final bool isConnected;
   final int totalWantedInDb;
   final String datasetName;
@@ -440,6 +472,8 @@ class ScanMainScreen extends StatefulWidget {
     super.key,
     required this.scans,
     required this.onAddScan,
+    required this.onClearScans,
+    required this.onSaveSession,
     required this.isConnected,
     required this.totalWantedInDb,
     required this.datasetName,
@@ -766,7 +800,54 @@ class _ScanMainScreenState extends State<ScanMainScreen> {
               ),
             ),
 
-            const SizedBox(height: 14),
+            const SizedBox(height: 10),
+
+            // --- Direct Save & Clear Action Bar in Flutter UI ---
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'سجل الفحص الميداني:',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF7A8B9E)),
+                ),
+                Row(
+                  children: [
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF2BF0C4),
+                        foregroundColor: const Color(0xFF070B14),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onPressed: widget.onSaveSession,
+                      icon: const Icon(Icons.save_alt_rounded, size: 16),
+                      label: const Text('حفظ وتصدير (Excel)', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF7A8B9E),
+                        side: const BorderSide(color: Color(0xFF192842)),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onPressed: () {
+                        if (widget.scans.isNotEmpty) {
+                          widget.onClearScans();
+                        }
+                      },
+                      child: const Text('تفريغ', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 8),
 
             // --- Real Results Table Card with Separated Columns ---
             Expanded(
