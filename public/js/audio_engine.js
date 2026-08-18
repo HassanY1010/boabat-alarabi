@@ -36,13 +36,10 @@ class AudioEngine {
 
     this.recognition.onresult = (event) => {
       let activeText = '';
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
-        const res = event.results[i];
-        for (let a = 0; a < res.length; a++) {
-          const t = res[a].transcript.trim();
-          if (t) {
-            activeText += ' ' + t;
-          }
+      for (let i = 0; i < event.results.length; ++i) {
+        const item = event.results[i][0];
+        if (item && item.transcript) {
+          activeText += ' ' + item.transcript.trim();
         }
       }
 
@@ -52,7 +49,7 @@ class AudioEngine {
           this.onTranscriptUpdate(activeText);
         }
 
-        // Parse plate candidates across all streaming alternatives
+        // Parse plate candidates
         const candidates = window.clientPlateParser.parsePlateTranscript(activeText);
         if (candidates.length > 0 && this.onPlateDetected) {
           candidates.forEach(c => this.onPlateDetected(c, activeText));
@@ -62,27 +59,26 @@ class AudioEngine {
 
     this.recognition.onerror = (event) => {
       console.warn('Speech recognition error:', event.error);
+      if (this.isListening && event.error === 'no-speech') {
+        // Just keep listening
+        return;
+      }
       if (this.isListening && event.error !== 'aborted') {
         setTimeout(() => {
           if (this.isListening) {
             try { this.recognition.start(); } catch (e) {}
           }
-        }, 300);
+        }, 400);
       }
     };
 
     this.recognition.onend = () => {
-      // Continuous listening restart
       if (this.isListening) {
-        try {
-          this.recognition.start();
-        } catch (e) {
-          setTimeout(() => {
-            if (this.isListening) {
-              try { this.recognition.start(); } catch (err) {}
-            }
-          }, 300);
-        }
+        setTimeout(() => {
+          if (this.isListening) {
+            try { this.recognition.start(); } catch (err) {}
+          }
+        }, 200);
       }
     };
   }
@@ -91,7 +87,7 @@ class AudioEngine {
     if (this.isListening) return;
     this.isListening = true;
 
-    // 1. Start Web Speech API
+    // Start Web Speech API with selected language
     if (this.recognition) {
       this.recognition.lang = document.getElementById('settingLanguage')?.value || 'ar-EG';
       try {
@@ -101,24 +97,8 @@ class AudioEngine {
       }
     }
 
-    // 2. Start Microphone Audio Analyzer for Visualizer
-    try {
-      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        this.mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
-        this.audioContext = new AudioContext();
-        const source = this.audioContext.createMediaStreamSource(this.mediaStream);
-        this.analyser = this.audioContext.createAnalyser();
-        this.analyser.fftSize = 64;
-        source.connect(this.analyser);
-        this.drawVisualizer();
-      } else {
-        this.startSimulatedVisualizer();
-      }
-    } catch (err) {
-      console.warn('Mic access for visualizer not granted or unavailable, starting simulated active level:', err);
-      this.startSimulatedVisualizer();
-    }
+    // Start Simulated Visualizer without locking mic hardware
+    this.startSimulatedVisualizer();
   }
 
   stopListening() {
