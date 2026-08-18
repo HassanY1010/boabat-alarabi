@@ -48,12 +48,12 @@ class AudioEngine {
       }
 
       const activeText = (finalTranscript + ' ' + interimTranscript).trim();
-      if (this.onTranscriptUpdate && activeText) {
-        this.onTranscriptUpdate(activeText);
-      }
-
-      // Parse candidates immediately (Streaming/Partial Parsing)
       if (activeText) {
+        if (this.onTranscriptUpdate) {
+          this.onTranscriptUpdate(activeText);
+        }
+
+        // Parse candidates immediately (Streaming/Partial Parsing)
         const candidates = window.clientPlateParser.parsePlateTranscript(activeText);
         if (candidates.length > 0 && this.onPlateDetected) {
           candidates.forEach(c => this.onPlateDetected(c, activeText));
