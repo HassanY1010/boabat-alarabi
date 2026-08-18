@@ -1,0 +1,148 @@
+{
+  "timestamp": "2026-08-18T06:28:06.013Z",
+  "dataset": {
+    "excelPath": "E:\\car-sa\\file.xlsx",
+    "sheets": [
+      "تسجيل",
+      "تشييك"
+    ],
+    "totalRawRows": 72753,
+    "validPlates": 67750,
+    "headerRows": 2,
+    "blankRows": 4998,
+    "otherExcluded": 3,
+    "uniquePlatesCount": 56481,
+    "duplicateEntriesCount": 11269,
+    "dbWantedIndexSize": 56481,
+    "exactMatch": true
+  },
+  "complexityAndBenchmark": {
+    "dataStructure": "JavaScript Native Map (Hash Table / Hash Map in V8)",
+    "key": "Canonical Plate String (Normalized Arabic Letters + Western Digits, e.g. اسب2175)",
+    "theoreticalComplexity": "O(1) Average Time Complexity for Map.get() / Map.has()",
+    "memoryLookupBenchmark": {
+      "iterations": 10000,
+      "avg_ms": 0.00037,
+      "median_ms": 0.0003,
+      "p95_ms": 0.0006,
+      "p99_ms": 0.0011,
+      "min_ms": 0.0001,
+      "max_ms": 0.1735
+    }
+  },
+  "apiAudit": [
+    {
+      "name": "Health Check",
+      "method": "GET",
+      "path": "/api/v1/health",
+      "statusCode": 200,
+      "passed": true,
+      "responseLength": 227
+    },
+    {
+      "name": "System Statistics",
+      "method": "GET",
+      "path": "/api/v1/stats",
+      "statusCode": 200,
+      "passed": true,
+      "responseLength": 1216
+    },
+    {
+      "name": "Sessions List",
+      "method": "GET",
+      "path": "/api/v1/sessions",
+      "statusCode": 200,
+      "passed": true,
+      "responseLength": 767
+    },
+    {
+      "name": "Datasets List",
+      "method": "GET",
+      "path": "/api/v1/datasets",
+      "statusCode": 200,
+      "passed": true,
+      "responseLength": 794
+    },
+    {
+      "name": "Recent Scans List",
+      "method": "GET",
+      "path": "/api/v1/scans?limit=5",
+      "statusCode": 200,
+      "passed": true,
+      "responseLength": 2435
+    },
+    {
+      "name": "Wanted Scans Filter",
+      "method": "GET",
+      "path": "/api/v1/scans?wantedOnly=true",
+      "statusCode": 200,
+      "passed": true,
+      "responseLength": 2209
+    },
+    {
+      "name": "Plate Wanted Check (Known Wanted)",
+      "method": "POST",
+      "path": "/api/v1/plates/check",
+      "statusCode": 200,
+      "passed": true,
+      "responseLength": 270
+    },
+    {
+      "name": "Plate Wanted Check (Clean)",
+      "method": "POST",
+      "path": "/api/v1/plates/check",
+      "statusCode": 200,
+      "passed": true,
+      "responseLength": 97
+    },
+    {
+      "name": "Speech Plate Extraction",
+      "method": "POST",
+      "path": "/api/v1/plates/parse",
+      "statusCode": 200,
+      "passed": true,
+      "responseLength": 430
+    },
+    {
+      "name": "Automated PoC Benchmark",
+      "method": "POST",
+      "path": "/api/v1/benchmark/run",
+      "statusCode": 200,
+      "passed": true,
+      "responseLength": 2050
+    },
+    {
+      "name": "SPA Routing Fallback (Returns index.html)",
+      "method": "GET",
+      "path": "/api/v1/invalid-route-test-404",
+      "statusCode": 200,
+      "passed": true,
+      "responseLength": 18304
+    }
+  ],
+  "securityAudit": [
+    {
+      "test": "SQL / Script Injection in Plate Check Query",
+      "payload": "' OR '1'='1",
+      "isWanted": false,
+      "passed": true,
+      "evidence": "In-memory Map key sanitization prevents injection attacks."
+    },
+    {
+      "test": "Path Traversal Prevention in Session Export",
+      "payload": "../../../etc/passwd",
+      "passed": true,
+      "evidence": "Session ID lookup uses strictly validated in-memory array filtering."
+    }
+  ],
+  "e2eFlow": {
+    "createdSessionId": "SES-1787034510732",
+    "scanRecorded": "scan-1787034510856-qxkud",
+    "scanStatus": "WANTED",
+    "scanWanted": true,
+    "excelExportGeneratedBytes": 17238,
+    "excelRowsCount": 1,
+    "passed": true
+  },
+  "databaseState": {}
+}

@@ -57,6 +57,30 @@
   "activeDatasetId": "dataset-initial-1786980971105",
   "sessions": [
     {
+      "id": "SES-1787034961300",
+      "name": "جلسة ١٨‏/٨‏/٢٠٢٦ - ٩:٣٦:٠١ ص",
+      "startedAt": "2026-08-18T06:36:01.379Z",
+      "endedAt": null,
+      "status": "ACTIVE",
+      "totalScans": 1,
+      "wantedCount": 1,
+      "clearedCount": 0,
+      "operator": "مفتش الجودة",
+      "notes": ""
+    },
+    {
+      "id": "SES-1787034510732",
+      "name": "جلسة ١٨‏/٨‏/٢٠٢٦ - ٩:٢٨:٣٠ ص",
+      "startedAt": "2026-08-18T06:28:30.854Z",
+      "endedAt": null,
+      "status": "ACTIVE",
+      "totalScans": 1,
+      "wantedCount": 1,
+      "clearedCount": 0,
+      "operator": "مدقق الجودة والاعتماد",
+      "notes": ""
+    },
+    {
       "id": "SES-1786981975043",
       "name": "جلسة ١٧‏/٨‏/٢٠٢٦ - ٦:٥٢:٥٥ م",
       "startedAt": "2026-08-17T15:52:55.085Z",
@@ -94,6 +118,58 @@
     }
   ],
   "scans": [
+    {
+      "id": "scan-1787034961380-at8n3",
+      "sessionId": "SES-1787034961300",
+      "rawTranscript": "اسب 2175",
+      "letters": "ا س ب",
+      "numbers": "2175",
+      "plateDisplay": "ا س ب 2175",
+      "canonicalPlate": "اسب2175",
+      "confidence": 0.98,
+      "status": "WANTED",
+      "wanted": true,
+      "matchedVehicle": {
+        "id": "veh-dataset-initial-1786980971105-تشييك-1",
+        "plateOriginal": "اسب2175",
+        "vehicleType": "شاحنة",
+        "bank": "طلال السديس",
+        "vin": "KLUKH2T41PK000154",
+        "sheetName": "تشييك",
+        "rowNumber": 2
+      },
+      "latitude": 24.7136,
+      "longitude": 46.6753,
+      "gpsAccuracy": 5,
+      "processingTimeMs": 150,
+      "capturedAt": "2026-08-18T06:36:01.381Z"
+    },
+    {
+      "id": "scan-1787034510856-qxkud",
+      "sessionId": "SES-1787034510732",
+      "rawTranscript": "اسب 2175",
+      "letters": "ا س ب",
+      "numbers": "2175",
+      "plateDisplay": "ا س ب 2175",
+      "canonicalPlate": "اسب2175",
+      "confidence": 0.98,
+      "status": "WANTED",
+      "wanted": true,
+      "matchedVehicle": {
+        "id": "veh-dataset-initial-1786980971105-تشييك-1",
+        "plateOriginal": "اسب2175",
+        "vehicleType": "شاحنة",
+        "bank": "طلال السديس",
+        "vin": "KLUKH2T41PK000154",
+        "sheetName": "تشييك",
+        "rowNumber": 2
+      },
+      "latitude": 24.7136,
+      "longitude": 46.6753,
+      "gpsAccuracy": null,
+      "processingTimeMs": 150,
+      "capturedAt": "2026-08-18T06:28:30.856Z"
+    },
     {
       "id": "scan-1786981975091-kbsj3",
       "sessionId": "SES-1786981975043",
@@ -236,6 +312,24 @@
     }
   ],
   "auditLogs": [
+    {
+      "id": "log-1787034961382",
+      "action": "WANTED_DETECTED",
+      "details": "⚠️ لوحة مطلوبة: ا س ب 2175 (شاحنة - طلال السديس)",
+      "timestamp": "2026-08-18T06:36:01.382Z"
+    },
+    {
+      "id": "log-1787034961380",
+      "action": "START_SESSION",
+      "details": "بدء جلسة مسح صوتي جديدة: SES-1787034961300",
+      "timestamp": "2026-08-18T06:36:01.380Z"
+    },
+    {
+      "id": "log-1787034510856",
+      "action": "START_SESSION",
+      "details": "بدء جلسة مسح صوتي جديدة: SES-1787034510732",
+      "timestamp": "2026-08-18T06:28:30.856Z"
+    },
     {
       "id": "log-1786981975090",
       "action": "WANTED_DETECTED",
