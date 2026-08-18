@@ -35,24 +35,40 @@ class AudioEngine {
     this.recognition.maxAlternatives = 3;
 
     this.recognition.onresult = (event) => {
-      let currentPhrase = '';
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
+      let interimTranscript = '';
+      let finalTranscript = '';
+
+      for (let i = 0; i < event.results.length; ++i) {
         const item = event.results[i][0];
         if (item && item.transcript) {
-          currentPhrase += ' ' + item.transcript.trim();
+          if (event.results[i].isFinal) {
+            finalTranscript += ' ' + item.transcript.trim();
+          } else {
+            interimTranscript += ' ' + item.transcript.trim();
+          }
         }
       }
 
-      currentPhrase = currentPhrase.trim();
-      if (currentPhrase) {
+      const activeText = (finalTranscript + ' ' + interimTranscript).trim();
+      const latestChunk = (event.results[event.results.length - 1] && event.results[event.results.length - 1][0]) ? event.results[event.results.length - 1][0].transcript.trim() : activeText;
+
+      if (activeText) {
+        console.log('[VOICE] Speech Received:', activeText, '| Latest:', latestChunk);
         if (this.onTranscriptUpdate) {
-          this.onTranscriptUpdate(currentPhrase);
+          this.onTranscriptUpdate(activeText);
         }
 
-        // Parse plate candidates directly from the spoken phrase
-        const candidates = window.clientPlateParser.parsePlateTranscript(currentPhrase);
+        // 1. Try parsing full active accumulated text
+        let candidates = window.clientPlateParser.parsePlateTranscript(activeText);
+        
+        // 2. Fallback: try parsing the latest speech chunk directly
+        if (candidates.length === 0 && latestChunk) {
+          candidates = window.clientPlateParser.parsePlateTranscript(latestChunk);
+        }
+
         if (candidates.length > 0 && this.onPlateDetected) {
-          candidates.forEach(c => this.onPlateDetected(c, currentPhrase));
+          console.log('[VOICE] Plate Detected:', candidates);
+          candidates.forEach(c => this.onPlateDetected(c, activeText));
         }
       }
     };
