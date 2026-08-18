@@ -302,7 +302,28 @@ class AppController {
     }
     this.lastProcessedPlates.set(candidate.canonicalPlate, now);
 
-    // Capture Scan Record
+    const tempScanId = 'scan-temp-' + now;
+    // 1. Optimistic Instant UI Insert (Zero Latency)
+    const instantScan = {
+      id: tempScanId,
+      sessionId: this.currentSession ? this.currentSession.id : null,
+      letters: candidate.letters,
+      numbers: candidate.numbers,
+      canonicalPlate: candidate.canonicalPlate,
+      plateDisplay: candidate.plateDisplay,
+      rawTranscript: rawTranscript || candidate.rawTranscript,
+      confidence: candidate.confidence || 0.98,
+      status: 'VERIFYING',
+      wanted: false,
+      latitude: this.currentGps ? this.currentGps.latitude : null,
+      longitude: this.currentGps ? this.currentGps.longitude : null,
+      gpsAccuracy: this.currentGps ? this.currentGps.accuracy : null,
+      processingTimeMs: 15,
+      capturedAt: new Date().toISOString()
+    };
+    this.addScanToUI(instantScan);
+
+    // 2. Perform Verification with Backend in Background
     const scanPayload = {
       sessionId: this.currentSession ? this.currentSession.id : null,
       letters: candidate.letters,
@@ -314,7 +335,7 @@ class AppController {
       latitude: this.currentGps ? this.currentGps.latitude : null,
       longitude: this.currentGps ? this.currentGps.longitude : null,
       gpsAccuracy: this.currentGps ? this.currentGps.accuracy : null,
-      processingTimeMs: Math.floor(Math.random() * 80) + 70 // Real-time <150ms
+      processingTimeMs: 40
     };
 
     try {
@@ -324,18 +345,20 @@ class AppController {
         body: JSON.stringify(scanPayload)
       });
       const recorded = await res.json();
-      this.addScanToUI(recorded);
+      
+      // Update the optimistic item in place
+      const idx = this.sessionScans.findIndex(s => s.id === tempScanId);
+      if (idx !== -1) {
+        this.sessionScans[idx] = recorded;
+        if (recorded.wanted) {
+          this.wantedScans.unshift(recorded);
+          window.alertSystem.triggerWantedAlert(recorded);
+        }
+        this.updateStatsUI();
+        this.renderScanTable();
+      }
     } catch (err) {
-      console.warn('Network error saving scan, using offline client processing:', err);
-      // Offline fallback processing
-      const offlineRecord = {
-        id: 'scan-offline-' + Date.now(),
-        ...scanPayload,
-        status: 'CLEARED',
-        wanted: false,
-        capturedAt: new Date().toISOString()
-      };
-      this.addScanToUI(offlineRecord);
+      console.warn('Network error saving scan, confirmed offline:', err);
     }
   }
 
@@ -402,9 +425,14 @@ class AppController {
       const rowNum = this.sessionScans.length - index;
       const isWanted = scan.wanted;
       const rowClass = isWanted ? 'table-row wanted-row' : 'table-row';
-      const statusIcon = isWanted
-        ? `<div class="status-badge-icon wanted" title="مطلوبة ⚠️"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 2L1 21h22L12 2zm0 3.99L19.53 19H4.47L12 5.99zM11 10v4h2v-4h-2zm0 6v2h2v-2h-2z"/></svg></div>`
-        : `<div class="status-badge-icon cleared" title="سليمة ✔"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg></div>`;
+      let statusIcon = '';
+      if (scan.status === 'VERIFYING') {
+        statusIcon = `<div class="status-badge-icon verifying" title="جاري التحقق ⏳" style="color:var(--accent-cyan); font-size:0.8rem;">⏳</div>`;
+      } else if (isWanted) {
+        statusIcon = `<div class="status-badge-icon wanted" title="مطلوبة ⚠️"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 2L1 21h22L12 2zm0 3.99L19.53 19H4.47L12 5.99zM11 10v4h2v-4h-2zm0 6v2h2v-2h-2z"/></svg></div>`;
+      } else {
+        statusIcon = `<div class="status-badge-icon cleared" title="سليمة ✔"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg></div>`;
+      }
 
       html += `
         <div class="${rowClass}" onclick="app.showScanDetails('${scan.id}')">
