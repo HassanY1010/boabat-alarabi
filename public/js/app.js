@@ -134,6 +134,37 @@ class AppController {
       this.newSessionBtn.addEventListener('click', () => this.startNewSession());
     }
 
+    // Export Current Session Scans Directly to Excel
+    const saveCurrentBtn = document.getElementById('saveCurrentSessionBtn');
+    if (saveCurrentBtn) {
+      saveCurrentBtn.addEventListener('click', () => {
+        if (this.sessionScans.length === 0) {
+          alert('لا توجد بيانات فحوصات حالية لحفظها وتصديرها!');
+          return;
+        }
+        const sessionId = this.currentSession ? this.currentSession.id : '';
+        if (sessionId) {
+          window.location.href = `/api/v1/export/session/${sessionId}`;
+        } else {
+          window.location.href = '/api/v1/export/all';
+        }
+      });
+    }
+
+    // Clear Scan Table for New Run
+    const clearTableBtn = document.getElementById('clearScanTableBtn');
+    if (clearTableBtn) {
+      clearTableBtn.addEventListener('click', () => {
+        if (this.sessionScans.length === 0) return;
+        if (confirm('هل تريد تفريغ الجدول لبدء جولة فحص جديدة؟ (ستبقى البيانات محفوظة في قاعدة البيانات والجلسات)')) {
+          this.sessionScans = [];
+          this.wantedScans = [];
+          this.updateStatsUI();
+          this.renderScanTable();
+        }
+      });
+    }
+
     // Run Benchmark Tester
     if (this.runBenchmarkBtn) {
       this.runBenchmarkBtn.addEventListener('click', () => this.runBenchmark());
