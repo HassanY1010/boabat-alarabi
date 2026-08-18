@@ -35,24 +35,24 @@ class AudioEngine {
     this.recognition.maxAlternatives = 3;
 
     this.recognition.onresult = (event) => {
-      let activeText = '';
-      for (let i = 0; i < event.results.length; ++i) {
+      let currentPhrase = '';
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
         const item = event.results[i][0];
         if (item && item.transcript) {
-          activeText += ' ' + item.transcript.trim();
+          currentPhrase += ' ' + item.transcript.trim();
         }
       }
 
-      activeText = activeText.trim();
-      if (activeText) {
+      currentPhrase = currentPhrase.trim();
+      if (currentPhrase) {
         if (this.onTranscriptUpdate) {
-          this.onTranscriptUpdate(activeText);
+          this.onTranscriptUpdate(currentPhrase);
         }
 
-        // Parse plate candidates
-        const candidates = window.clientPlateParser.parsePlateTranscript(activeText);
+        // Parse plate candidates directly from the spoken phrase
+        const candidates = window.clientPlateParser.parsePlateTranscript(currentPhrase);
         if (candidates.length > 0 && this.onPlateDetected) {
-          candidates.forEach(c => this.onPlateDetected(c, activeText));
+          candidates.forEach(c => this.onPlateDetected(c, currentPhrase));
         }
       }
     };

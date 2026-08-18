@@ -180,7 +180,8 @@ function clientParsePlateTranscript(rawText) {
     hasCompound = false;
   }
 
-  for (const tok of tokens) {
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i];
     if (tok.type === 'LETTER') {
       if (digits.length >= 1 || hasCompound) flush();
       if (letters.length < 4) letters.push(tok.value);
@@ -190,7 +191,11 @@ function clientParsePlateTranscript(rawText) {
           compoundSum += tok.numVal;
         } else {
           digits += tok.value;
-          if (digits.length === 4) flush();
+          if (digits.length >= 3 && (i === tokens.length - 1 || tokens[i+1]?.type === 'LETTER')) {
+            flush();
+          } else if (digits.length === 4) {
+            flush();
+          }
         }
       }
     } else if (tok.type === 'DIGIT_STRING') {
