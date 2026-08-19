@@ -266,7 +266,7 @@ class AudioEngine {
   }
 
   async uploadAndTranscribeBlob(audioBlob, sessionToken) {
-    if (!this.isListening || this.sessionToken !== sessionToken || this.isProcessingSTT) return;
+    if (this.isProcessingSTT) return;
     this.isProcessingSTT = true;
 
     console.log('[VOICE][STT] Uploading complete recording (' + audioBlob.size + ' bytes)');
@@ -276,35 +276,51 @@ class AudioEngine {
     formData.append('audio', audioBlob, 'speech_utterance.webm');
 
     try {
+      console.log('[VOICE][STT] Fetch started');
       const res = await fetch('/api/v1/speech/transcribe', {
         method: 'POST',
         body: formData
       });
 
-      if (!this.isListening || this.sessionToken !== sessionToken) return;
+      console.log(`[VOICE][STT] HTTP response received status=${res.status}`);
+      console.log(`[VOICE][STT] response.ok=${res.ok}`);
 
-      const data = await res.json();
+      const rawText = await res.text();
+      console.log(`[VOICE][STT] Raw response=${rawText}`);
+
+      let data;
+      try {
+        data = JSON.parse(rawText);
+      } catch (parseErr) {
+        console.error('[VOICE][STT] Failed to parse JSON response:', parseErr);
+        data = { success: false, error: 'JSON parse error' };
+      }
+      console.log('[VOICE][STT] JSON parsed=', data);
 
       if (data.success && typeof data.text === 'string' && data.text.trim().length > 0) {
         const recognizedTranscript = data.text.trim();
-        console.log('[VOICE][STT] Transcript received: "' + recognizedTranscript + '"');
-        console.log('[VOICE][PIPELINE] processSpokenText()');
-        this.updateStatus('🔎 تم التعرف: "' + recognizedTranscript + '"');
+        console.log(`[VOICE][STT] Transcript received: "${recognizedTranscript}"`);
+        console.log('[VOICE][PIPELINE] Calling processSpokenText()');
+        this.updateStatus(`🔎 تم التعرف: "${recognizedTranscript}"`);
 
         if (this.onTranscriptUpdate) {
           this.onTranscriptUpdate(recognizedTranscript);
         }
         if (this.onSpokenText) {
-          this.onSpokenText(recognizedTranscript);
+          await this.onSpokenText(recognizedTranscript);
         }
+        console.log('[VOICE][PIPELINE] processSpokenText() completed');
       } else {
-        if (this.isListening && this.sessionToken === sessionToken) {
+        if (data.error) {
+          console.warn('[VOICE][STT] STT response notice:', data.error);
+        }
+        if (this.isListening) {
           this.updateStatus('🎙️ يستمع الآن... تفضل بنطق لوحة السيارة بشكل طبيعي');
         }
       }
     } catch (err) {
       console.error('[VOICE][STT] Upload error:', err.message);
-      if (this.isListening && this.sessionToken === sessionToken) {
+      if (this.isListening) {
         this.updateStatus('⚠️ تعذر الاتصال، يستمر الاستماع...');
       }
     } finally {

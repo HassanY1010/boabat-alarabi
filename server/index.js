@@ -142,7 +142,9 @@ app.post('/api/v1/plates/parse', (req, res) => {
 
 // 3.1. Speech-to-Text Transcription Endpoint (MediaRecorder / Server-Side Whisper STT)
 app.post('/api/v1/speech/transcribe', upload.single('audio'), async (req, res) => {
+  console.log('[STT][NODE] Request received');
   if (!req.file) {
+    console.warn('[STT][NODE] No audio file uploaded');
     return res.status(400).json({
       success: false,
       error: 'No audio file uploaded',
@@ -160,13 +162,15 @@ app.post('/api/v1/speech/transcribe', upload.single('audio'), async (req, res) =
     // Clean up temporary file
     try { require('fs').unlinkSync(uploadedPath); } catch (e) {}
 
+    console.log('[STT][NODE] Returning response to browser:', result);
+
     if (result.success) {
       return res.json({
         success: true,
         text: result.text,
         provider: result.provider || 'local-faster-whisper',
         language: result.language || 'ar',
-        model: result.model || 'base'
+        model: result.model || 'tiny'
       });
     } else {
       const statusCode = result.statusCode || 500;
@@ -180,7 +184,7 @@ app.post('/api/v1/speech/transcribe', upload.single('audio'), async (req, res) =
     // Clean up temporary file
     try { require('fs').unlinkSync(uploadedPath); } catch (e) {}
     
-    console.error('[STT][ENDPOINT] Error processing audio:', err.message);
+    console.error('[STT][NODE] Error processing audio:', err.message);
     return res.status(500).json({
       success: false,
       error: err.message || 'Internal error during speech transcription',

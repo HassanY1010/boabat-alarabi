@@ -34,7 +34,7 @@ async function transcribeAudioFile(filePath, originalFilename = 'speech.webm', m
   const filename = originalFilename || 'speech_chunk.webm';
   const serviceUrl = getPythonSttUrl();
 
-  console.log('[VOICE][STT] Uploading audio to faster-whisper service (' + serviceUrl + ')');
+  console.log('[STT][NODE] Calling Python STT at', serviceUrl);
 
   try {
     const formData = new FormData();
@@ -53,8 +53,12 @@ async function transcribeAudioFile(filePath, originalFilename = 'speech.webm', m
     });
     clearTimeout(timeoutId);
 
+    console.log(`[STT][NODE] Python response status=${response.status}`);
+
     if (response.ok) {
       const data = await response.json();
+      console.log('[STT][NODE] Python response body=', data);
+
       if (data && data.success && typeof data.text === 'string') {
         const text = data.text.trim();
         console.log('[VOICE][STT] Response received from faster-whisper');
@@ -67,7 +71,7 @@ async function transcribeAudioFile(filePath, originalFilename = 'speech.webm', m
           model: data.model || process.env.WHISPER_MODEL || 'tiny'
         };
       } else {
-        console.warn('[STT][BACKEND] faster-whisper returned non-success:', data);
+        console.warn('[STT][NODE] faster-whisper returned non-success:', data);
         return {
           success: false,
           error: (data && data.error) || 'STT transcription failed',
@@ -76,7 +80,7 @@ async function transcribeAudioFile(filePath, originalFilename = 'speech.webm', m
       }
     } else {
       const errText = await response.text();
-      console.warn('[STT][BACKEND] faster-whisper HTTP status:', response.status, errText);
+      console.warn('[STT][NODE] faster-whisper HTTP status error:', response.status, errText);
       return {
         success: false,
         error: 'faster-whisper service returned HTTP ' + response.status,
