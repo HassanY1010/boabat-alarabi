@@ -1,8 +1,6 @@
-/**
+﻿/**
  * Boabat Al-Arabi - Real-Time MediaRecorder Audio Engine & STT Pipeline
- * Architecture:
- * Microphone -> MediaRecorder -> Audio Blob -> POST /api/v1/speech/transcribe
- * -> Transcript -> app.processSpokenText() -> Plate Parser -> Table Record -> Wanted Check
+ * Clean Single-Lifecycle Architecture with timeslice recording and queueing
  */
 
 class AudioEngine {
@@ -14,10 +12,11 @@ class AudioEngine {
     this.isListening = false;
     this.mediaStream = null;
     this.mediaRecorder = null;
-    this.audioChunks = [];
-    this.sliceTimer = null;
-    this.animFrameId = null;
+    this.sessionToken = 0;
+    this.chunkSequence = 0;
+    this.uploadQueue = [];
     this.isUploading = false;
+    this.animFrameId = null;
 
     this.canvas = document.getElementById('audioVisualizerCanvas');
     this.canvasCtx = this.canvas ? this.canvas.getContext('2d') : null;
@@ -37,12 +36,20 @@ class AudioEngine {
 
   async startListening() {
     if (this.isListening) return;
+
+    // Clean up any stale recorder or stream before starting
+    this.cleanup();
+
     this.isListening = true;
+    const currentSession = ++this.sessionToken;
+    this.chunkSequence = 0;
+    this.uploadQueue = [];
+    this.isUploading = false;
 
     console.log('[VOICE][SESSION] Started');
     this.updateStatus('🎙️ جاري التسجيل والاستماع... تفضل بنطق لوحة السيارة');
 
-    // 1. Request real microphone stream
+    // 1. Request microphone stream
     try {
       this.mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -58,9 +65,12 @@ class AudioEngine {
       return;
     }
 
-    console.log('[VOICE][RECORDER] Recording started');
+    if (!this.isListening || this.sessionToken !== currentSession) {
+      this.cleanup();
+      return;
+    }
 
-    // 2. Select optimal audio MIME type supported by browser
+    // 2. Select optimal audio MIME type
     let mimeType = 'audio/webm;codecs=opus';
     if (!MediaRecorder.isTypeSupported(mimeType)) {
       if (MediaRecorder.isTypeSupported('audio/webm')) mimeType = 'audio/webm';
@@ -74,53 +84,57 @@ class AudioEngine {
       this.mediaRecorder = new MediaRecorder(this.mediaStream);
     }
 
-    this.audioChunks = [];
+    console.log('[VOICE][RECORDER] Created');
 
+    // 3. ondataavailable handler (fires every ~3.2 seconds due to start(3200))
     this.mediaRecorder.ondataavailable = (event) => {
+      if (this.sessionToken !== currentSession || !this.isListening) return;
+
       if (event.data && event.data.size > 0) {
-        this.audioChunks.push(event.data);
-      }
-    };
+        console.log('[VOICE][RECORDER] dataavailable size=' + event.data.size);
 
-    this.mediaRecorder.onstop = () => {
-      if (this.audioChunks.length > 0) {
-        const currentMime = this.mediaRecorder.mimeType || 'audio/webm';
-        const audioBlob = new Blob(this.audioChunks, { type: currentMime });
-        console.log('[VOICE][RECORDER] Recording stopped (' + audioBlob.size + ' bytes)');
-
-        if (audioBlob.size > 1200) {
-          this.uploadAndTranscribe(audioBlob);
+        if (event.data.size > 1500) {
+          const chunkId = ++this.chunkSequence;
+          this.uploadQueue.push({ chunkId, blob: event.data, token: currentSession });
+          this.processUploadQueue();
         }
       }
     };
 
-    // 3. Start recording chunks continuously in cycles of ~3.2 seconds
-    this.mediaRecorder.start();
-    this.startSimulatedVisualizer();
+    this.mediaRecorder.onstop = () => {
+      console.log('[VOICE][RECORDER] stop()');
+    };
 
-    this.sliceTimer = setInterval(() => {
-      if (this.isListening && this.mediaRecorder && this.mediaRecorder.state === 'recording') {
-        this.mediaRecorder.stop();
-        setTimeout(() => {
-          if (this.isListening && this.mediaRecorder && this.mediaRecorder.state === 'inactive') {
-            try {
-              this.mediaRecorder.start();
-            } catch (e) {}
-          }
-        }, 60);
-      }
-    }, 3200);
+    // 4. Start recording in continuous stream with 3200ms timeslice (NO repeated stop() calls)
+    try {
+      this.mediaRecorder.start(3200);
+      console.log('[VOICE][RECORDER] start()');
+    } catch (err) {
+      console.error('[VOICE][ERROR] MediaRecorder start failed:', err);
+      this.stopListening();
+      return;
+    }
+
+    this.startSimulatedVisualizer();
   }
 
-  async uploadAndTranscribe(audioBlob) {
-    if (this.isUploading) return;
-    this.isUploading = true;
+  async processUploadQueue() {
+    if (this.isUploading || this.uploadQueue.length === 0) return;
 
-    console.log('[VOICE][STT] Uploading audio');
-    this.updateStatus('⬆️ جاري إرسال الصوت وتحويله إلى نص...');
+    const item = this.uploadQueue.shift();
+    if (!item || item.token !== this.sessionToken) {
+      this.processUploadQueue();
+      return;
+    }
+
+    this.isUploading = true;
+    const { chunkId, blob, token } = item;
+
+    console.log('[VOICE][STT] Uploading chunk #' + chunkId + ' size=' + blob.size);
+    this.updateStatus('⬆️ جاري إرسال المقطع الصوتي #' + chunkId + '...');
 
     const formData = new FormData();
-    formData.append('audio', audioBlob, 'speech_chunk.webm');
+    formData.append('audio', blob, 'speech_chunk_' + chunkId + '.webm');
 
     try {
       const res = await fetch('/api/v1/speech/transcribe', {
@@ -128,14 +142,20 @@ class AudioEngine {
         body: formData
       });
 
+      if (token !== this.sessionToken) {
+        this.isUploading = false;
+        this.processUploadQueue();
+        return;
+      }
+
       const data = await res.json();
-      console.log('[VOICE][STT] Response received:', data);
+      console.log('[VOICE][STT] Response received chunk #' + chunkId, data);
 
       if (data.success && data.text && data.text.trim().length > 0) {
         const recognizedTranscript = data.text.trim();
-        console.log('[VOICE][STT] Transcript: "' + recognizedTranscript + '"');
+        console.log('[VOICE][STT] Transcript chunk #' + chunkId + ': "' + recognizedTranscript + '"');
         console.log('[VOICE][PIPELINE] processSpokenText()');
-        this.updateStatus('🔎 جاري فحص اللوحة: "' + recognizedTranscript + '"');
+        this.updateStatus('🔎 تم التعرف: "' + recognizedTranscript + '"');
 
         if (this.onTranscriptUpdate) {
           this.onTranscriptUpdate(recognizedTranscript);
@@ -149,32 +169,23 @@ class AudioEngine {
         }
       }
     } catch (err) {
-      console.error('[VOICE][STT] Network / upload error:', err.message);
+      console.error('[VOICE][STT] Chunk #' + chunkId + ' upload failed:', err.message);
       if (this.isListening) {
-        this.updateStatus('⚠️ تعذر تحويل الصوت إلى نص. يستمر الاستماع...');
+        this.updateStatus('⚠️ خطأ في معالجة الصوت، يستمر الاستماع...');
       }
     } finally {
       this.isUploading = false;
+      this.processUploadQueue();
     }
   }
 
   stopListening() {
     this.isListening = false;
+    this.sessionToken++;
+    this.uploadQueue = [];
     this.isUploading = false;
 
-    if (this.sliceTimer) {
-      clearInterval(this.sliceTimer);
-      this.sliceTimer = null;
-    }
-
-    if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
-      try { this.mediaRecorder.stop(); } catch (e) {}
-    }
-
-    if (this.mediaStream) {
-      this.mediaStream.getTracks().forEach(track => track.stop());
-      this.mediaStream = null;
-    }
+    this.cleanup();
 
     if (this.animFrameId) {
       cancelAnimationFrame(this.animFrameId);
@@ -184,6 +195,26 @@ class AudioEngine {
     this.clearVisualizer();
     if (this.audioBadge) this.audioBadge.textContent = 'صامت';
     this.updateStatus('تم إيقاف الجلسة الصوتية مؤقتًا');
+  }
+
+  cleanup() {
+    if (this.mediaRecorder) {
+      if (this.mediaRecorder.state !== 'inactive') {
+        try {
+          this.mediaRecorder.stop();
+        } catch (e) {}
+      }
+      this.mediaRecorder.ondataavailable = null;
+      this.mediaRecorder.onstop = null;
+      this.mediaRecorder = null;
+    }
+
+    if (this.mediaStream) {
+      this.mediaStream.getTracks().forEach(track => track.stop());
+      this.mediaStream = null;
+    }
+
+    console.log('[VOICE][RECORDER] Cleanup complete');
   }
 
   startSimulatedVisualizer() {
