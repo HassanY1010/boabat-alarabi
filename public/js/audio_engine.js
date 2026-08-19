@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Boabat Al-Arabi - Real-Time MediaRecorder Audio Engine & STT Pipeline
  * Architecture:
  * Microphone -> MediaRecorder -> Audio Blob -> POST /api/v1/speech/transcribe
@@ -86,8 +86,7 @@ class AudioEngine {
       if (this.audioChunks.length > 0) {
         const currentMime = this.mediaRecorder.mimeType || 'audio/webm';
         const audioBlob = new Blob(this.audioChunks, { type: currentMime });
-        this.audioChunks = [];
-        console.log([VOICE][RECORDER] Recording stopped ( bytes));
+        console.log('[VOICE][RECORDER] Recording stopped (' + audioBlob.size + ' bytes)');
 
         if (audioBlob.size > 1200) {
           this.uploadAndTranscribe(audioBlob);
@@ -134,9 +133,9 @@ class AudioEngine {
 
       if (data.success && data.text && data.text.trim().length > 0) {
         const recognizedTranscript = data.text.trim();
-        console.log([VOICE][STT] Transcript: "");
+        console.log('[VOICE][STT] Transcript: "' + recognizedTranscript + '"');
         console.log('[VOICE][PIPELINE] processSpokenText()');
-        this.updateStatus(🔎 جاري فحص اللوحة: "");
+        this.updateStatus('🔎 جاري فحص اللوحة: "' + recognizedTranscript + '"');
 
         if (this.onTranscriptUpdate) {
           this.onTranscriptUpdate(recognizedTranscript);
