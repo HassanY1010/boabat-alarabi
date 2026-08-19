@@ -1,19 +1,38 @@
-/// Boabat Al-Arabi - Flutter Arabic Plate Parsing Engine
+/// Boabat Al-Arabi - Enterprise Deterministic Arabic Plate Parsing & Validation Engine
+/// 100% Synchronized with Web Plate Parser
 library;
 
 class PlateCandidate {
   final String letters;
+  final String lettersCanonical;
   final String numbers;
+  final String numbersCanonical;
   final String canonicalPlate;
   final String plateDisplay;
   final double confidence;
+  final int sourceDigitCount;
 
   PlateCandidate({
     required this.letters,
+    required this.lettersCanonical,
     required this.numbers,
+    required this.numbersCanonical,
     required this.canonicalPlate,
     required this.plateDisplay,
     this.confidence = 0.98,
+    this.sourceDigitCount = 4,
+  });
+}
+
+class ValidationResult {
+  final bool isValid;
+  final String reason;
+  final String? normalized;
+
+  ValidationResult({
+    required this.isValid,
+    this.reason = '',
+    this.normalized,
   });
 }
 
@@ -49,31 +68,23 @@ class FlutterPlateEngine {
     'ياء': 'ي', 'يا': 'ي', 'يه': 'ي', 'ى': 'ي', 'ي': 'ي'
   };
 
-  static const Map<String, int> singleDigits = {
-    'صفر': 0, 'زيرو': 0,
-    'واحد': 1, 'واحده': 1,
-    'اثنين': 2, 'اتنين': 2, 'إثنين': 2,
-    'ثلاثة': 3, 'تلاتة': 3, 'تلاته': 3, 'ثلاث': 3,
-    'أربعة': 4, 'اربعه': 4, 'أربعه': 4, 'اربع': 4,
-    'خمسة': 5, 'خمسه': 5, 'خمس': 5,
-    'ستة': 6, 'سته': 6, 'ست': 6,
-    'سبعة': 7, 'سبعه': 7, 'سبع': 7,
-    'ثمانية': 8, 'تمانية': 8, 'تمانيه': 8, 'تمن': 8,
-    'تسعة': 9, 'تسعه': 9, 'تسع': 9,
-  };
-
-  static const Map<String, int> compoundNumbers = {
-    'عشرة': 10, 'حداشر': 11, 'اتناشر': 12, 'تلتاشر': 13, 'اربعتاشر': 14,
-    'خمستاشر': 15, 'ستاشر': 16, 'سبعتاشر': 17, 'تمنتاشر': 18, 'تسعتاشر': 19,
-    'عشرين': 20, 'تلاتين': 30, 'اربعين': 40, 'خمسين': 50, 'ستين': 60, 'سبعين': 70, 'تمانين': 80, 'تسعين': 90,
-    'مية': 100, 'ميتين': 200, 'تلتماية': 300, 'تلاتمية': 300, 'ربعمية': 400, 'خمسمية': 500,
-    'ستمية': 600, 'سبعمية': 700, 'تمنمية': 800, 'تسعمية': 900,
-    'ألفين': 2000, 'الفين': 2000, 'تلات آلاف': 3000, 'اربع الاف': 4000,
+  static const Map<String, String> singleDigits = {
+    'صفر': '0', 'زيرو': '0',
+    'واحد': '1', 'واحده': '1', 'حادي': '1',
+    'اثنين': '2', 'اثنان': '2', 'إثنين': '2', 'إثنان': '2', 'أثنين': '2', 'أثنان': '2', 'اتنين': '2', 'تنين': '2', 'تنان': '2',
+    'ثلاثة': '3', 'ثلاثه': '3', 'ثلاث': '3', 'تلاتة': '3', 'تلاته': '3', 'تلات': '3',
+    'أربعة': '4', 'اربعه': '4', 'أربعه': '4', 'اربعة': '4', 'أربع': '4', 'اربع': '4',
+    'خمسة': '5', 'خمسه': '5', 'خمس': '5',
+    'ستة': '6', 'سته': '6', 'ست': '6',
+    'سبعة': '7', 'سبعه': '7', 'سبع': '7',
+    'ثمانية': '8', 'ثمانيه': '8', 'ثمان': '8', 'تمانية': '8', 'تمانيه': '8', 'تمن': '8',
+    'تسعة': '9', 'تسعه': '9', 'تسع': '9'
   };
 
   static const Set<String> noiseWords = {
     'السيارة', 'سيارة', 'السياره', 'سياره', 'لوحة', 'لوحه', 'اللوحة', 'اللوحه',
-    'هناك', 'هنا', 'شوف', 'شايف', 'هذه', 'دي', 'ده', 'دا', 'روح', 'يا', 'ايوه', 'ايوة', 'تمام'
+    'هناك', 'هنا', 'شوف', 'شايف', 'هذه', 'دي', 'ده', 'دا', 'روح', 'يا',
+    'ايوه', 'ايوة', 'تمام', 'سجل', 'اكتب', 'رقم', 'الرقم', 'حرف', 'الحرف'
   };
 
   static String normalizeArabic(String str) {
@@ -99,85 +110,156 @@ class FlutterPlateEngine {
     return res;
   }
 
-  static String canonicalize(String plateStr) {
-    final digits = normalizeDigits(plateStr);
-    return normalizeArabic(digits).replaceAll(RegExp(r'\s+'), '');
+  static ValidationResult validatePlateCandidate(PlateCandidate candidate) {
+    final letters = candidate.lettersCanonical.trim();
+    final numbers = candidate.numbersCanonical.trim();
+    final canonical = candidate.canonicalPlate;
+
+    // 1. Letters count check (exactly 3 Arabic letters)
+    if (letters.length != 3 || !RegExp(r'^[\u0621-\u064A]{3}$').hasMatch(letters)) {
+      return ValidationResult(isValid: false, reason: 'invalid_letter_count');
+    }
+
+    // 2. Runaway source digit check (hallucination rejection)
+    if (candidate.sourceDigitCount > 4) {
+      return ValidationResult(isValid: false, reason: 'digit_sequence_too_long');
+    }
+
+    // 3. Numbers count check (exactly 4 digits)
+    if (numbers.length != 4 || !RegExp(r'^\d{4}$').hasMatch(numbers)) {
+      return ValidationResult(isValid: false, reason: 'invalid_digit_count');
+    }
+
+    return ValidationResult(isValid: true, normalized: canonical);
   }
 
   static List<PlateCandidate> parse(String rawText) {
-    final clean = normalizeDigits(rawText);
-    final words = clean.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
-    final candidates = <PlateCandidate>[];
+    if (rawText.trim().isEmpty) return [];
 
-    final List<String> letters = [];
-    final List<String> digits = [];
+    // 1. Convert Eastern digits
+    String text = normalizeDigits(rawText);
 
-    void flush() {
-      if (letters.length >= 2 && letters.length <= 4 && digits.length >= 1 && digits.length <= 4) {
-        final finalLetters = letters.take(3).toList();
-        final lettersDisplay = finalLetters.join(' ');
-        final lettersCanonical = finalLetters.join('');
-        final digitsDisplay = digits.join(' ');
-        final digitsCanonical = digits.join('');
-        final canonical = '$lettersCanonical$digitsCanonical';
+    // 2. Normalize punctuation into whitespace
+    text = text.replaceAll(RegExp(r'[،,.:;!؟\?\[\]\(\)\{\}\-_/\\|]'), ' ');
 
-        candidates.add(PlateCandidate(
-          letters: lettersDisplay,
-          lettersCanonical: lettersCanonical,
-          numbers: digitsDisplay,
-          canonicalPlate: canonical,
-          plateDisplay: '$lettersDisplay $digitsDisplay',
-          confidence: 0.98,
-        ));
-      }
+    final rawWords = text.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+    final List<Map<String, String>> tokens = [];
 
-      letters.clear();
-      digits.clear();
-    }
-
-    for (final raw in words) {
+    for (final raw in rawWords) {
       final norm = normalizeArabic(raw);
       if (noiseWords.contains(raw) || noiseWords.contains(norm)) continue;
 
+      // A. Raw ASCII digit strings e.g. "2524"
       if (RegExp(r'^\d+$').hasMatch(raw)) {
-        for (final ch in raw.split('')) {
-          if (letters.length >= 2) {
-            digits.add(ch);
-            if (digits.length == 4) flush();
-          }
+        for (final d in raw.split('')) {
+          tokens.add({'type': 'DIGIT', 'value': d});
         }
         continue;
       }
 
-      final withoutWa = raw.startsWith('و') ? raw.substring(1) : raw;
-      final normWithoutWa = norm.startsWith('و') ? norm.substring(1) : norm;
+      // B. Concatenated word + digits e.g. "داد2524"
+      if (RegExp(r'\d+').hasMatch(raw) && RegExp(r'[\u0621-\u064A]').hasMatch(raw)) {
+        final match = RegExp(r'^([\u0621-\u064A]+)(\d+)$').firstMatch(raw);
+        if (match != null) {
+          final letStr = normalizeArabic(match.group(1)!);
+          for (final ch in letStr.split('')) {
+            tokens.add({'type': 'LETTER', 'value': ch});
+          }
+          for (final d in match.group(2)!.split('')) {
+            tokens.add({'type': 'DIGIT', 'value': d});
+          }
+          continue;
+        }
+      }
 
+      final withoutWa = raw.startsWith('و') && raw.length > 2 ? raw.substring(1) : raw;
+      final normWithoutWa = norm.startsWith('و') && norm.length > 2 ? norm.substring(1) : norm;
+
+      // C. Spoken single digits
       if (singleDigits.containsKey(raw) || singleDigits.containsKey(norm) || singleDigits.containsKey(withoutWa) || singleDigits.containsKey(normWithoutWa)) {
         final d = singleDigits[raw] ?? singleDigits[norm] ?? singleDigits[withoutWa] ?? singleDigits[normWithoutWa]!;
-        if (letters.length >= 2) {
-          digits.add(d.toString());
-          if (digits.length == 4) flush();
-        }
+        tokens.add({'type': 'DIGIT', 'value': d});
         continue;
       }
 
-      if (letterNames.containsKey(raw) || letterNames.containsKey(norm)) {
-        final letVal = letterNames[raw] ?? letterNames[norm]!;
-        if (digits.isNotEmpty) flush();
-        if (letters.length < 4) letters.add(letVal);
+      // D. Spoken Letter Names
+      if (letterNames.containsKey(raw) || letterNames.containsKey(norm) || letterNames.containsKey(withoutWa) || letterNames.containsKey(normWithoutWa)) {
+        final letVal = letterNames[raw] ?? letterNames[norm] ?? letterNames[withoutWa] ?? letterNames[normWithoutWa]!;
+        tokens.add({'type': 'LETTER', 'value': letVal});
         continue;
       }
 
+      // E. Raw Arabic letters cluster e.g. "داد"
       if (RegExp(r'^[\u0621-\u064A]{2,4}$').hasMatch(norm)) {
-        if (digits.isNotEmpty) flush();
         for (final ch in norm.split('')) {
-          letters.add(ch);
+          tokens.add({'type': 'LETTER', 'value': ch});
         }
         continue;
       }
     }
 
-    flush();
-    return candidates;
+    final List<PlateCandidate> rawCandidates = [];
+    List<String> curLetters = [];
+    List<String> curDigits = [];
+
+    void evaluateCluster() {
+      if (curLetters.isNotEmpty || curDigits.isNotEmpty) {
+        final sourceDigitCount = curDigits.length;
+        final sourceLetterCount = curLetters.length;
+
+        if (sourceLetterCount == 3 && sourceDigitCount == 4) {
+          final lettersDisplay = curLetters.join(' ');
+          final lettersCanonical = curLetters.join('');
+          final digitsDisplay = curDigits.join(' ');
+          final digitsCanonical = curDigits.join('');
+          final canonical = '$lettersCanonical$digitsCanonical';
+
+          final candidate = PlateCandidate(
+            letters: lettersDisplay,
+            lettersCanonical: lettersCanonical,
+            numbers: digitsDisplay,
+            numbersCanonical: digitsCanonical,
+            canonicalPlate: canonical,
+            plateDisplay: '$lettersDisplay $digitsDisplay',
+            confidence: 0.98,
+            sourceDigitCount: sourceDigitCount,
+          );
+
+          final validation = validatePlateCandidate(candidate);
+          if (validation.isValid) {
+            rawCandidates.add(candidate);
+          }
+        }
+      }
+      curLetters = [];
+      curDigits = [];
+    }
+
+    for (final tok in tokens) {
+      if (tok['type'] == 'LETTER') {
+        if (curDigits.isNotEmpty) {
+          evaluateCluster();
+        }
+        curLetters.add(tok['value']!);
+      } else if (tok['type'] == 'DIGIT') {
+        if (curLetters.isNotEmpty) {
+          curDigits.add(tok['value']!);
+        }
+      }
+    }
+
+    evaluateCluster();
+
+    // Deduplicate candidates
+    final List<PlateCandidate> unique = [];
+    final Set<String> seen = {};
+    for (final c in rawCandidates) {
+      if (!seen.contains(c.canonicalPlate)) {
+        seen.add(c.canonicalPlate);
+        unique.add(c);
+      }
+    }
+
+    return unique;
   }
 }
