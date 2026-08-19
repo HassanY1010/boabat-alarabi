@@ -1,5 +1,5 @@
 /**
- * Boabat Al-Arabi - Client-Side Arabic Normalizer & Plate Parser
+ * Boabat Al-Arabi - Enterprise Deterministic Arabic Plate Parser
  */
 
 const CLIENT_LETTER_NAMES = {
@@ -34,27 +34,16 @@ const CLIENT_LETTER_NAMES = {
 };
 
 const CLIENT_SINGLE_DIGITS = {
-  'صفر': 0, 'زيرو': 0,
-  'واحد': 1, 'واحده': 1,
-  'اثنين': 2, 'إثنين': 2, 'اتنين': 2, 'تنين': 2,
-  'ثلاثة': 3, 'ثلاثه': 3, 'تلاتة': 3, 'تلاته': 3, 'تلات': 3, 'ثلاث': 3,
-  'أربعة': 4, 'اربعه': 4, 'أربعه': 4, 'اربعة': 4, 'اربع': 4, 'أربع': 4,
-  'خمسة': 5, 'خمسه': 5, 'خمس': 5,
-  'ستة': 6, 'سته': 6, 'ست': 6,
-  'سبعة': 7, 'سبعه': 7, 'سبع': 7,
-  'ثمانية': 8, 'ثمانيه': 8, 'تمانية': 8, 'تمانيه': 8, 'تمن': 8, 'ثمان': 8,
-  'تسعة': 9, 'تسعه': 9, 'تسع': 9
-};
-
-const CLIENT_COMPOUND_NUMBERS = {
-  'عشرة': 10, 'عشره': 10, 'حداشر': 11, 'اتناشر': 12, 'تلتاشر': 13, 'اربعتاشر': 14,
-  'خمستاشر': 15, 'ستاشر': 16, 'سبعتاشر': 17, 'تمنتاشر': 18, 'تسعتاشر': 19,
-  'عشرين': 20, 'عشرون': 20, 'تلاتين': 30, 'ثلاثين': 30, 'اربعين': 40, 'خمسين': 50,
-  'ستين': 60, 'سبعين': 70, 'تمانين': 80, 'تسعين': 90,
-  'مية': 100, 'مئة': 100, 'مائة': 100, 'ميتين': 200,
-  'تلتماية': 300, 'تلاتمية': 300, 'ربعمية': 400, 'خمسمية': 500,
-  'ستمية': 600, 'سبعمية': 700, 'تمنمية': 800, 'تسعمية': 900,
-  'ألفين': 2000, 'الفين': 2000, 'تلات آلاف': 3000, 'اربع الاف': 4000
+  'صفر': '0', 'زيرو': '0',
+  'واحد': '1', 'واحده': '1', 'حادي': '1',
+  'اثنين': '2', 'اثنان': '2', 'إثنين': '2', 'إثنان': '2', 'أثنين': '2', 'أثنان': '2', 'اتنين': '2', 'تنين': '2', 'تنان': '2',
+  'ثلاثة': '3', 'ثلاثه': '3', 'ثلاث': '3', 'تلاتة': '3', 'تلاته': '3', 'تلات': '3',
+  'أربعة': '4', 'اربعه': '4', 'أربعه': '4', 'اربعة': '4', 'أربع': '4', 'اربع': '4',
+  'خمسة': '5', 'خمسه': '5', 'خمس': '5',
+  'ستة': '6', 'سته': '6', 'ست': '6',
+  'سبعة': '7', 'سبعه': '7', 'سبع': '7',
+  'ثمانية': '8', 'ثمانيه': '8', 'ثمان': '8', 'تمانية': '8', 'تمانيه': '8', 'تمن': '8',
+  'تسعة': '9', 'تسعه': '9', 'تسع': '9'
 };
 
 const CLIENT_NOISE = new Set([
@@ -83,110 +72,192 @@ function clientNormalizeDigits(str) {
   return str.replace(/[٠-٩]/g, d => map[d] || d);
 }
 
-function clientParsePlateTranscript(rawText) {
-  const clean = clientNormalizeDigits(rawText || '');
-  const rawWords = clean.split(/\s+/).filter(w => w.length > 0);
+function clientTokenize(rawText) {
+  if (!rawText) return [];
+  // 1. Convert Eastern digits to ASCII digits
+  let text = clientNormalizeDigits(rawText);
+
+  // 2. Normalize punctuation into whitespace
+  text = text.replace(/[،,.:;!؟\?\[\]\(\)\{\}\-_/\\|]/g, ' ');
+
+  const rawWords = text.split(/\s+/).filter(w => w.length > 0);
   const tokens = [];
 
   for (const raw of rawWords) {
     const norm = clientNormalizeArabic(raw);
     if (CLIENT_NOISE.has(raw) || CLIENT_NOISE.has(norm)) continue;
 
+    // A. Check for raw ASCII digit strings e.g. "2524" or "2"
+    if (/^\d+$/.test(raw)) {
+      for (const d of raw) {
+        tokens.push({ type: 'DIGIT', value: d, raw: d });
+      }
+      continue;
+    }
+
+    // B. Check for concatenated word + digits e.g. "داد2524"
     if (/\d+/.test(raw) && /[\u0621-\u064A]/.test(raw)) {
       const match = raw.match(/^([\u0621-\u064A]+)(\d+)$/);
       if (match) {
         const letStr = clientNormalizeArabic(match[1]);
         for (const ch of letStr) {
-          tokens.push({ type: 'LETTER', value: ch });
+          tokens.push({ type: 'LETTER', value: ch, raw: ch });
         }
-        tokens.push({ type: 'DIGIT_STRING', value: match[2] });
+        for (const d of match[2]) {
+          tokens.push({ type: 'DIGIT', value: d, raw: d });
+        }
         continue;
       }
     }
 
-    if (/^\d+$/.test(raw)) {
-      for (const d of raw) {
-        tokens.push({ type: 'DIGIT', value: d, numVal: parseInt(d, 10) });
-      }
-      continue;
-    }
+    // C. Check word with leading conjunction 'و' stripped
+    const withoutWa = raw.startsWith('و') && raw.length > 2 ? raw.slice(1) : raw;
+    const normWithoutWa = norm.startsWith('و') && norm.length > 2 ? norm.slice(1) : norm;
 
-    const withoutWa = raw.replace(/^و/, '');
-    const normWithoutWa = norm.replace(/^و/, '');
-
+    // D. Spoken single digits
     if (raw in CLIENT_SINGLE_DIGITS || norm in CLIENT_SINGLE_DIGITS || withoutWa in CLIENT_SINGLE_DIGITS || normWithoutWa in CLIENT_SINGLE_DIGITS) {
-      const d = CLIENT_SINGLE_DIGITS[raw] !== undefined ? CLIENT_SINGLE_DIGITS[raw] :
-                CLIENT_SINGLE_DIGITS[norm] !== undefined ? CLIENT_SINGLE_DIGITS[norm] :
-                CLIENT_SINGLE_DIGITS[withoutWa] !== undefined ? CLIENT_SINGLE_DIGITS[withoutWa] :
+      const d = CLIENT_SINGLE_DIGITS[raw] ||
+                CLIENT_SINGLE_DIGITS[norm] ||
+                CLIENT_SINGLE_DIGITS[withoutWa] ||
                 CLIENT_SINGLE_DIGITS[normWithoutWa];
-      tokens.push({ type: 'DIGIT', value: d.toString(), numVal: d });
+      tokens.push({ type: 'DIGIT', value: d, raw });
       continue;
     }
 
-    if (raw in CLIENT_LETTER_NAMES || norm in CLIENT_LETTER_NAMES) {
-      const letVal = CLIENT_LETTER_NAMES[raw] || CLIENT_LETTER_NAMES[norm];
-      tokens.push({ type: 'LETTER', value: letVal });
+    // E. Spoken Letter Names
+    if (raw in CLIENT_LETTER_NAMES || norm in CLIENT_LETTER_NAMES || withoutWa in CLIENT_LETTER_NAMES || normWithoutWa in CLIENT_LETTER_NAMES) {
+      const letVal = CLIENT_LETTER_NAMES[raw] ||
+                     CLIENT_LETTER_NAMES[norm] ||
+                     CLIENT_LETTER_NAMES[withoutWa] ||
+                     CLIENT_LETTER_NAMES[normWithoutWa];
+      tokens.push({ type: 'LETTER', value: letVal, raw });
       continue;
     }
 
+    // F. Raw Arabic letters cluster e.g. "داد"
     if (/^[\u0621-\u064A]{2,4}$/.test(norm)) {
       for (const ch of norm) {
-        tokens.push({ type: 'LETTER', value: ch });
+        tokens.push({ type: 'LETTER', value: ch, raw: ch });
       }
       continue;
     }
   }
 
-  const candidates = [];
-  let letters = [];
-  let digits = [];
+  return tokens;
+}
 
-  function flush() {
-    if (letters.length >= 2 && letters.length <= 4 && digits.length >= 1 && digits.length <= 4) {
-      const finalLetters = letters.slice(0, 3);
+function clientParsePlateTranscript(rawText) {
+  if (!rawText) return [];
+
+  const normText = clientNormalizeArabic(clientNormalizeDigits(rawText));
+  const tokens = clientTokenize(rawText);
+
+  const letterTokens = tokens.filter(t => t.type === 'LETTER').map(t => t.value);
+  const digitTokens = tokens.filter(t => t.type === 'DIGIT').map(t => t.value);
+
+  console.log('[VOICE][PLATE] Raw transcript: "' + rawText + '"');
+  console.log('[VOICE][PLATE] Normalized transcript: "' + normText + '"');
+  console.log('[VOICE][PLATE] Letter tokens:', letterTokens);
+  console.log('[VOICE][PLATE] Digit tokens:', digitTokens);
+
+  const candidates = [];
+  let curLetters = [];
+  let curDigits = [];
+
+  function flushCandidate() {
+    if (curLetters.length >= 2 && curLetters.length <= 4 && curDigits.length >= 1 && curDigits.length <= 4) {
+      const finalLetters = curLetters.slice(0, 3);
       const lettersDisplay = finalLetters.join(' ');
       const lettersCanonical = finalLetters.join('');
-      const digitsDisplay = digits.join(' ');
-      const digitsCanonical = digits.join('');
-      const canonical = `${lettersCanonical}${digitsCanonical}`;
+      const digitsDisplay = curDigits.join(' ');
+      const digitsCanonical = curDigits.join('');
+      const canonical = lettersCanonical + digitsCanonical;
 
       candidates.push({
         letters: lettersDisplay,
-        lettersCanonical,
+        lettersCanonical: lettersCanonical,
         numbers: digitsDisplay,
-        digitsList: [...digits],
+        digitsList: [...curDigits],
         numbersCanonical: digitsCanonical,
         canonicalPlate: canonical,
-        plateDisplay: `${lettersDisplay} ${digitsDisplay}`,
+        plateDisplay: lettersDisplay + ' ' + digitsDisplay,
         confidence: 0.98
       });
     }
-
-    letters = [];
-    digits = [];
+    curLetters = [];
+    curDigits = [];
   }
 
   for (let i = 0; i < tokens.length; i++) {
     const tok = tokens[i];
     if (tok.type === 'LETTER') {
-      if (digits.length >= 1) flush();
-      if (letters.length < 4) letters.push(tok.value);
+      // If we already collected digits and encounter letters again, flush current completed plate
+      if (curDigits.length >= 1) {
+        flushCandidate();
+      }
+      if (curLetters.length < 3) {
+        curLetters.push(tok.value);
+      }
     } else if (tok.type === 'DIGIT') {
-      if (letters.length >= 2) {
-        digits.push(tok.value);
-        if (digits.length === 4 || (digits.length >= 3 && (i === tokens.length - 1 || tokens[i+1]?.type === 'LETTER'))) {
-          flush();
+      if (curLetters.length >= 2) {
+        if (curDigits.length < 4) {
+          curDigits.push(tok.value);
+        }
+        // If 4 digits reached, flush completed candidate
+        if (curDigits.length === 4) {
+          flushCandidate();
         }
       }
     }
   }
 
-  flush();
+  flushCandidate();
+
+  // Fallback: If no candidate was formed via streaming scan but tokens exist
+  if (candidates.length === 0 && letterTokens.length >= 2 && digitTokens.length >= 1) {
+    const fallbackLetters = letterTokens.slice(0, 3);
+    const fallbackDigits = digitTokens.slice(0, 4);
+    const lettersDisplay = fallbackLetters.join(' ');
+    const lettersCanonical = fallbackLetters.join('');
+    const digitsDisplay = fallbackDigits.join(' ');
+    const digitsCanonical = fallbackDigits.join('');
+    const canonical = lettersCanonical + digitsCanonical;
+
+    candidates.push({
+      letters: lettersDisplay,
+      lettersCanonical: lettersCanonical,
+      numbers: digitsDisplay,
+      digitsList: fallbackDigits,
+      numbersCanonical: digitsCanonical,
+      canonicalPlate: canonical,
+      plateDisplay: lettersDisplay + ' ' + digitsDisplay,
+      confidence: 0.95
+    });
+  }
+
+  const candidateNames = candidates.map(c => c.canonicalPlate);
+  console.log('[VOICE][PLATE] Candidate plates:', candidateNames);
+  if (candidates.length > 0) {
+    console.log('[VOICE][PLATE] Selected candidate:', candidates[0].canonicalPlate);
+  }
+
   return candidates;
 }
 
-window.clientPlateParser = {
-  parsePlateTranscript: clientParsePlateTranscript,
-  normalizeArabic: clientNormalizeArabic,
-  normalizeDigits: clientNormalizeDigits
-};
+if (typeof window !== 'undefined') {
+  window.clientPlateParser = {
+    parsePlateTranscript: clientParsePlateTranscript,
+    normalizeArabic: clientNormalizeArabic,
+    normalizeDigits: clientNormalizeDigits,
+    tokenize: clientTokenize
+  };
+}
+
+if (typeof module !== 'undefined') {
+  module.exports = {
+    clientParsePlateTranscript,
+    clientNormalizeArabic,
+    clientNormalizeDigits,
+    clientTokenize
+  };
+}
