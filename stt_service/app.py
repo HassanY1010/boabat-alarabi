@@ -107,15 +107,28 @@ async def transcribe_audio(audio: UploadFile = File(None), file: UploadFile = Fi
 
     try:
         print("[STT][TRANSCRIBE] Starting transcription")
-        segments, info = model.transcribe(
-            temp_path,
-            language="ar",
-            initial_prompt="لوحة سيارة عربية: دال ألف دال اثنين خمسة اثنين أربعة، ألف سين باء ٢١٧٥",
-            beam_size=5,
-            temperature=0.0,
-            vad_filter=True,
-            vad_parameters=dict(min_silence_duration_ms=400)
-        )
+        try:
+            segments, info = model.transcribe(
+                temp_path,
+                language="ar",
+                initial_prompt="لوحة سيارة عربية: دال ألف دال اثنين خمسة اثنين أربعة، ألف سين باء ٢١٧٥",
+                beam_size=5,
+                temperature=0.0,
+                vad_filter=True,
+                vad_parameters=dict(min_silence_duration_ms=300)
+            )
+        except Exception as file_err:
+            print(f"[STT][WARN] Direct file transcribe failed ({file_err}), trying in-memory stream...")
+            import io
+            segments, info = model.transcribe(
+                io.BytesIO(content),
+                language="ar",
+                initial_prompt="لوحة سيارة عربية: دال ألف دال اثنين خمسة اثنين أربعة، ألف سين باء ٢١٧٥",
+                beam_size=5,
+                temperature=0.0,
+                vad_filter=True,
+                vad_parameters=dict(min_silence_duration_ms=300)
+            )
 
         text_segments = [s.text.strip() for s in segments if s.text.strip()]
         recognized_text = " ".join(text_segments).strip()
