@@ -178,6 +178,12 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     if (candidates.isEmpty) return;
 
     final c = candidates.first;
+    debugPrint('[VOICE] Parsed Letters: ${c.letters.split(RegExp(r"\s+"))}');
+    debugPrint('[VOICE] Parsed Digits: ${c.numbers.replaceAll(" ", "").split("")}');
+    debugPrint('[VOICE] Plate Created: ${c.canonicalPlate}');
+    debugPrint('[VOICE] Table Record Created');
+    debugPrint('[VOICE] Wanted Check Started: ${c.canonicalPlate}');
+
     bool isWanted = false;
     Map<String, dynamic> vehicleInfo = {};
 
@@ -199,6 +205,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     } catch (e) {
       debugPrint('Direct check error: $e');
     }
+
+    debugPrint('[VOICE] Wanted Check Result: ${isWanted ? "FOUND" : "NOT_FOUND"}');
 
     final newScan = {
       'id': DateTime.now().millisecondsSinceEpoch.toString(),
@@ -235,6 +243,9 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     setState(() {
       _scans.add(newScan);
     });
+
+    debugPrint('[VOICE] Table Row Updated');
+    debugPrint('[VOICE] Final Status: ${isWanted ? "WANTED" : "SAFE"}');
 
     if (isWanted) {
       _showWantedDialog(newScan);

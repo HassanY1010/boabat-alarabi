@@ -334,6 +334,13 @@ class AppController {
     }
     this.lastProcessedPlates.set(candidate.canonicalPlate, now);
 
+    const lettersArray = (candidate.letters || '').split(/\s+/).filter(Boolean);
+    const digitsArray = (candidate.digitsList && candidate.digitsList.length) ? candidate.digitsList : (candidate.numbers || '').toString().split('').filter(ch => /\d/.test(ch));
+
+    console.log('[VOICE] Parsed Letters:', lettersArray);
+    console.log('[VOICE] Parsed Digits:', digitsArray);
+    console.log('[VOICE] Plate Created:', candidate.canonicalPlate);
+
     const tempScanId = 'scan-temp-' + now;
     // 1. Optimistic Instant UI Insert (Zero Latency)
     const instantScan = {
@@ -354,6 +361,8 @@ class AppController {
       capturedAt: new Date().toISOString()
     };
     this.addScanToUI(instantScan);
+    console.log('[VOICE] Table Record Created');
+    console.log('[VOICE] Wanted Check Started:', candidate.canonicalPlate);
 
     // 2. Perform Verification with Backend in Background
     const scanPayload = {
@@ -378,6 +387,8 @@ class AppController {
       });
       const recorded = await res.json();
       
+      console.log('[VOICE] Wanted Check Result:', recorded.wanted ? 'FOUND' : 'NOT_FOUND');
+
       // Update the optimistic item in place
       const idx = this.sessionScans.findIndex(s => s.id === tempScanId);
       if (idx !== -1) {
@@ -388,6 +399,8 @@ class AppController {
         }
         this.updateStatsUI();
         this.renderScanTable();
+        console.log('[VOICE] Table Row Updated');
+        console.log('[VOICE] Final Status:', recorded.wanted ? 'WANTED' : 'SAFE');
       }
     } catch (err) {
       console.warn('Network error saving scan, confirmed offline:', err);
@@ -459,11 +472,11 @@ class AppController {
       const rowClass = isWanted ? 'table-row wanted-row' : 'table-row';
       let statusIcon = '';
       if (scan.status === 'VERIFYING') {
-        statusIcon = `<div class="status-badge-icon verifying" title="جاري التحقق ⏳" style="color:var(--accent-cyan); font-size:0.8rem;">⏳</div>`;
+        statusIcon = `<div class="status-badge-icon verifying" title="جاري التحقق ⏳" style="color:var(--accent-cyan); font-size:0.8rem; display:flex; align-items:center; gap:4px;">⏳ <span style="font-size:0.75rem;">يتم التحقق...</span></div>`;
       } else if (isWanted) {
-        statusIcon = `<div class="status-badge-icon wanted" title="مطلوبة ⚠️"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 2L1 21h22L12 2zm0 3.99L19.53 19H4.47L12 5.99zM11 10v4h2v-4h-2zm0 6v2h2v-2h-2z"/></svg></div>`;
+        statusIcon = `<div class="status-badge-icon wanted" title="مطلوبة ⚠️" style="display:flex; align-items:center; gap:4px;"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 2L1 21h22L12 2zm0 3.99L19.53 19H4.47L12 5.99zM11 10v4h2v-4h-2zm0 6v2h2v-2h-2z"/></svg> <span>مطلوبة</span></div>`;
       } else {
-        statusIcon = `<div class="status-badge-icon cleared" title="سليمة ✔"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg></div>`;
+        statusIcon = `<div class="status-badge-icon cleared" title="سليمة ✔" style="display:flex; align-items:center; gap:4px;"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg> <span>سليمة</span></div>`;
       }
 
       // Format separate discrete slots (e.g. د | ا | د and 2 | 5 | 2 | 4)

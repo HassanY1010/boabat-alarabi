@@ -163,13 +163,13 @@ class FlutterPlateEngine {
 
       if (letterNames.containsKey(raw) || letterNames.containsKey(norm)) {
         final letVal = letterNames[raw] ?? letterNames[norm]!;
-        if (digits.isNotEmpty || hasCompound) flush();
+        if (digits.isNotEmpty) flush();
         if (letters.length < 4) letters.add(letVal);
         continue;
       }
 
       if (RegExp(r'^[\u0621-\u064A]{2,4}$').hasMatch(norm)) {
-        if (digits.isNotEmpty || hasCompound) flush();
+        if (digits.isNotEmpty) flush();
         for (final ch in norm.split('')) {
           letters.add(ch);
         }

@@ -53,7 +53,10 @@ class AudioEngine {
       const latestChunk = (event.results[event.results.length - 1] && event.results[event.results.length - 1][0]) ? event.results[event.results.length - 1][0].transcript.trim() : activeText;
 
       if (activeText) {
-        console.log('[VOICE] Speech Received:', activeText, '| Latest:', latestChunk);
+        console.log('[VOICE] Speech Received:', activeText);
+        if (finalTranscript) {
+          console.log('[VOICE] Final Speech:', finalTranscript.trim());
+        }
         if (this.onTranscriptUpdate) {
           this.onTranscriptUpdate(activeText);
         }
@@ -67,14 +70,13 @@ class AudioEngine {
         }
 
         if (candidates.length > 0 && this.onPlateDetected) {
-          console.log('[VOICE] Plate Detected:', candidates);
           candidates.forEach(c => this.onPlateDetected(c, activeText));
         }
       }
     };
 
     this.recognition.onerror = (event) => {
-      console.warn('Speech recognition error:', event.error);
+      console.warn('[VOICE] Speech recognition error:', event.error);
       if (this.isListening && event.error === 'no-speech') {
         // Just keep listening
         return;
@@ -102,6 +104,8 @@ class AudioEngine {
   async startListening() {
     if (this.isListening) return;
     this.isListening = true;
+    console.log('[VOICE] Session Started');
+    console.log('[VOICE] Microphone Listening');
 
     // Start Web Speech API with selected language
     if (this.recognition) {
