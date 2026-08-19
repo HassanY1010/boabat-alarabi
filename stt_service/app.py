@@ -1,12 +1,15 @@
-import os
+﻿import os
 import sys
+import time
 import tempfile
 import logging
-from fastapi import FastAPI, File, UploadFile, HTTPException
+import traceback
+from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from faster_whisper import WhisperModel
 
-# Configure logging
+# Ensure Python unbuffered stdout
+os.environ["PYTHONUNBUFFERED"] = "1"
 logging.basicConfig(level=logging.INFO, format='%(message)s')
 
 app = FastAPI(title="Boabat Al-Arabi - Local faster-whisper STT Service")
@@ -19,13 +22,28 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+def log_msg(msg: str):
+    print(msg, flush=True)
+
+def get_memory_usage() -> str:
+    try:
+        import resource
+        usage = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        # On Linux ru_maxrss is in kilobytes; on macOS in bytes
+        if sys.platform == "darwin":
+            return f"{usage / (1024 * 1024):.1f} MB"
+        return f"{usage / 1024:.1f} MB"
+    except Exception:
+        return "N/A"
+
 # Configuration from Environment Variables
 MODEL_NAME = os.getenv("WHISPER_MODEL", "tiny")
 DEVICE = os.getenv("WHISPER_DEVICE", "cpu")
 COMPUTE_TYPE = os.getenv("WHISPER_COMPUTE_TYPE", "int8")
 
-print("[STT][INIT] Initializing faster-whisper")
-print(f"[STT][CONFIG] model={MODEL_NAME} device={DEVICE} compute_type={COMPUTE_TYPE}")
+log_msg("[STT][INIT] Initializing faster-whisper")
+log_msg(f"[STT][CONFIG] model={MODEL_NAME} device={DEVICE} compute_type={COMPUTE_TYPE}")
+log_msg(f"[STT][MEMORY] Initial RAM usage: {get_memory_usage()}")
 
 # Global model instance loaded once at startup
 try:
@@ -34,15 +52,15 @@ try:
         device=DEVICE,
         compute_type=COMPUTE_TYPE
     )
-    print(f"[STT][READY] Model loaded successfully ({MODEL_NAME})")
+    log_msg(f"[STT][READY] Model loaded successfully ({MODEL_NAME})")
+    log_msg(f"[STT][MEMORY] Post-load RAM usage: {get_memory_usage()}")
 except Exception as e:
-    print(f"[STT][ERROR] Failed to load model '{MODEL_NAME}': {e}")
-    # Fallback to tiny model if memory constrained
+    log_msg(f"[STT][ERROR] Failed to load model '{MODEL_NAME}': {e}")
     if MODEL_NAME != "tiny":
-        print("[STT][FALLBACK] Attempting fallback to 'tiny' model...")
+        log_msg("[STT][FALLBACK] Attempting fallback to 'tiny' model...")
         MODEL_NAME = "tiny"
         model = WhisperModel("tiny", device="cpu", compute_type="int8")
-        print("[STT][READY] Fallback model 'tiny' loaded successfully")
+        log_msg("[STT][READY] Fallback model 'tiny' loaded successfully")
     else:
         raise e
 
@@ -55,6 +73,7 @@ def root():
         "model": MODEL_NAME,
         "device": DEVICE,
         "compute_type": COMPUTE_TYPE,
+        "memory_usage": get_memory_usage(),
         "endpoints": {
             "health": "GET /health",
             "transcribe": "POST /transcribe",
@@ -69,7 +88,8 @@ def health_check():
         "provider": "local-faster-whisper",
         "model": MODEL_NAME,
         "device": DEVICE,
-        "compute_type": COMPUTE_TYPE
+        "compute_type": COMPUTE_TYPE,
+        "memory_usage": get_memory_usage()
     }
 
 @app.post("/transcribe")
@@ -82,17 +102,18 @@ async def transcribe_audio(audio: UploadFile = File(None), file: UploadFile = Fi
             "code": "AUDIO_MISSING"
         }
 
-    print("[STT][REQUEST] Audio received")
+    log_msg("[STT][REQUEST] Audio received")
     
     # Save uploaded bytes to a temporary file
     temp_suffix = os.path.splitext(upload.filename or "audio.webm")[1] or ".webm"
     with tempfile.NamedTemporaryFile(delete=False, suffix=temp_suffix) as tmp:
         content = await upload.read()
         tmp.write(content)
+        tmp.flush()
         temp_path = tmp.name
 
     audio_size = len(content)
-    print(f"[STT][AUDIO] size={audio_size} bytes")
+    log_msg(f"[STT][AUDIO] size={audio_size} bytes")
 
     if audio_size == 0:
         try:
@@ -105,11 +126,14 @@ async def transcribe_audio(audio: UploadFile = File(None), file: UploadFile = Fi
             "code": "AUDIO_EMPTY"
         }
 
-    try:
-        import time
-        start_time = time.time()
-        print("[STT][TRANSCRIBE] Calling model.transcribe()")
+    temp_file_to_clean = temp_path
 
+    try:
+        log_msg(f"[STT][MEMORY] Pre-inference RAM: {get_memory_usage()}")
+        started = time.perf_counter()
+        log_msg("[STT][TRANSCRIBE] Calling model.transcribe()")
+
+        # Execute transcription with fallback to in-memory buffer if file path fails
         try:
             segments, info = model.transcribe(
                 temp_path,
@@ -119,9 +143,8 @@ async def transcribe_audio(audio: UploadFile = File(None), file: UploadFile = Fi
                 temperature=0.0,
                 vad_filter=False
             )
-            text_segments = [s.text.strip() for s in segments if s.text and s.text.strip()]
         except Exception as file_err:
-            print(f"[STT][WARN] Direct file transcribe failed ({file_err}), trying in-memory stream...")
+            log_msg(f"[STT][WARN] Direct file transcribe threw ({file_err}), trying in-memory buffer...")
             import io
             segments, info = model.transcribe(
                 io.BytesIO(content),
@@ -131,15 +154,27 @@ async def transcribe_audio(audio: UploadFile = File(None), file: UploadFile = Fi
                 temperature=0.0,
                 vad_filter=False
             )
-            text_segments = [s.text.strip() for s in segments if s.text and s.text.strip()]
 
-        print("[STT][TRANSCRIBE] model.transcribe() returned")
-        duration_ms = int((time.time() - start_time) * 1000)
-        print(f"[STT][TIMING] duration_ms={duration_ms}")
+        # Actively iterate and consume generator segments
+        log_msg("[STT][SEGMENTS] Iterating segments")
+        text_segments = []
+        for segment in segments:
+            seg_text = segment.text.strip() if segment.text else ""
+            if seg_text:
+                log_msg(f'[STT][SEGMENT] text="{seg_text}"')
+                text_segments.append(seg_text)
+
+        log_msg("[STT][SEGMENTS] Iteration completed")
+        log_msg("[STT][TRANSCRIBE] model.transcribe() returned")
+
+        elapsed_s = time.perf_counter() - started
+        duration_ms = int(elapsed_s * 1000)
+        log_msg(f"[STT][TIMING] duration_ms={duration_ms}")
+        log_msg(f"[STT][MEMORY] Post-inference RAM: {get_memory_usage()}")
 
         recognized_text = " ".join(text_segments).strip()
-        print(f'[STT][RESULT] text="{recognized_text}"')
-        print("[STT][DONE] Transcription completed")
+        log_msg(f'[STT][RESULT] text="{recognized_text}"')
+        log_msg("[STT][DONE] Transcription completed")
 
         return {
             "success": True,
@@ -147,20 +182,24 @@ async def transcribe_audio(audio: UploadFile = File(None), file: UploadFile = Fi
             "provider": "local-faster-whisper",
             "language": "ar",
             "model": MODEL_NAME,
-            "processing_ms": duration_ms
+            "duration_ms": duration_ms
         }
     except Exception as err:
-        print(f"[STT][ERROR] Transcription exception: {err}")
+        log_msg(f"[STT][ERROR] Transcription exception: {err}")
+        traceback.print_exc(file=sys.stdout)
+        sys.stdout.flush()
         return {
             "success": False,
             "error": str(err),
-            "code": "STT_TRANSCRIPTION_FAILED"
+            "code": "STT_TRANSCRIPTION_FAILED",
+            "traceback": traceback.format_exc()
         }
     finally:
-        try:
-            os.remove(temp_path)
-        except Exception:
-            pass
+        if temp_file_to_clean and os.path.exists(temp_file_to_clean):
+            try:
+                os.remove(temp_file_to_clean)
+            except Exception:
+                pass
 
 if __name__ == "__main__":
     import uvicorn
