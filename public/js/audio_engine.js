@@ -9,6 +9,7 @@
  * 2. If silence occurs without speech: No recording is created, no STT called.
  * 3. Exact one recorder.stop() per utterance.
  * 4. Next listening cycle starts ONLY after complete STT + DB Wanted check + Table update.
+ * 5. Session remains strictly active (LISTENING <-> RECORDING) until explicit user stop.
  */
 
 class AudioEngine {
@@ -20,6 +21,7 @@ class AudioEngine {
     // FSM State: IDLE | LISTENING | RECORDING | STOPPING | TRANSCRIBING | PROCESSING
     this.state = 'IDLE';
     this.isListening = false;
+    this.sessionActive = false;
     this.mediaStream = null;
     this.audioCtx = null;
     this.analyser = null;
@@ -54,6 +56,12 @@ class AudioEngine {
 
   transitionState(newState) {
     if (this.state === newState) return;
+
+    if (this.sessionActive && newState === 'IDLE') {
+      console.warn('[VOICE][FSM] BLOCKED LISTENING -> IDLE while session is active');
+      return;
+    }
+
     console.log('[VOICE][STATE] ' + this.state + ' -> ' + newState);
     this.state = newState;
   }
@@ -90,6 +98,7 @@ class AudioEngine {
 
     this.cleanup();
     this.isListening = true;
+    this.sessionActive = true;
     const currentSession = ++this.sessionToken;
 
     console.log('[VOICE][SESSION] Started');
@@ -108,7 +117,7 @@ class AudioEngine {
     } catch (err) {
       console.error('[VOICE][ERROR] Microphone access error:', err);
       this.updateStatus('❌ تعذر الوصول إلى الميكروفون. يرجى منح الإذن في المتصفح.', true);
-      this.stopListening();
+      this.stopListening('mic_permission_failed');
       return;
     }
 
@@ -140,7 +149,7 @@ class AudioEngine {
     const buffer = new Float32Array(this.analyser ? this.analyser.fftSize : 256);
 
     this.vadInterval = setInterval(() => {
-      if (!this.isListening || this.sessionToken !== sessionToken) {
+      if (!this.isListening || !this.sessionActive || this.sessionToken !== sessionToken) {
         clearInterval(this.vadInterval);
         return;
       }
@@ -225,7 +234,7 @@ class AudioEngine {
         this.maxDurationTimer = null;
       }
 
-      if (!this.isListening || this.sessionToken !== sessionToken) {
+      if (!this.isListening || !this.sessionActive || this.sessionToken !== sessionToken) {
         return;
       }
 
@@ -251,7 +260,7 @@ class AudioEngine {
       await this.uploadAndTranscribeBlob(completeAudioBlob, sessionToken);
 
       // Return to LISTENING only after complete STT + Pipeline finishes
-      if (this.isListening && this.sessionToken === sessionToken) {
+      if (this.isListening && this.sessionActive && this.sessionToken === sessionToken) {
         this.resetToListeningState(sessionToken);
       }
     };
@@ -304,7 +313,7 @@ class AudioEngine {
     this.silenceStartTime = 0;
     this.speechStartTime = 0;
 
-    if (this.isListening && this.sessionToken === sessionToken) {
+    if (this.isListening && this.sessionActive && this.sessionToken === sessionToken) {
       this.transitionState('LISTENING');
       console.log('[VOICE][RECORDER] Starting next listening cycle');
       this.updateStatus('🎙️ يستمع الآن... تفضل بنطق لوحة السيارة');
@@ -383,7 +392,13 @@ class AudioEngine {
     }
   }
 
-  stopListening() {
+  stopListening(reason = 'user_action') {
+    const caller = (new Error().stack || '').split('\n')[2] || 'unknown';
+    console.log('[VOICE][SESSION] stopListening() called');
+    console.log('[VOICE][SESSION] stop reason=' + reason);
+    console.log('[VOICE][SESSION] caller=' + caller.trim());
+
+    this.sessionActive = false;
     this.isListening = false;
     this.sessionToken++;
     this.transitionState('IDLE');
