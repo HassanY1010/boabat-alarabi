@@ -1,4 +1,4 @@
-﻿import os
+import os
 import sys
 import tempfile
 import logging
@@ -20,7 +20,7 @@ app.add_middleware(
 )
 
 # Configuration from Environment Variables
-MODEL_NAME = os.getenv("WHISPER_MODEL", "base")
+MODEL_NAME = os.getenv("WHISPER_MODEL", "tiny")
 DEVICE = os.getenv("WHISPER_DEVICE", "cpu")
 COMPUTE_TYPE = os.getenv("WHISPER_COMPUTE_TYPE", "int8")
 

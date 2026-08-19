@@ -1,11 +1,19 @@
-﻿const fs = require('fs');
+const fs = require('fs');
 
-const PYTHON_STT_URL = process.env.PYTHON_STT_URL || 'http://127.0.0.1:5001/transcribe';
+function getPythonSttUrl() {
+  let url = (process.env.PYTHON_STT_URL || 'http://127.0.0.1:5001/transcribe').trim();
+  url = url.replace(/\/+$/, '');
+  if (!url.endsWith('/transcribe')) {
+    url += '/transcribe';
+  }
+  return url;
+}
 
 function logSttConfiguration() {
+  const serviceUrl = getPythonSttUrl();
   console.log('[STT][CONFIG] Provider: Local faster-whisper (Python microservice)');
-  console.log('[STT][CONFIG] Service Endpoint: ' + PYTHON_STT_URL);
-  console.log('[STT][CONFIG] Model: ' + (process.env.WHISPER_MODEL || 'base'));
+  console.log('[STT][CONFIG] Service Endpoint: ' + serviceUrl);
+  console.log('[STT][CONFIG] Model: ' + (process.env.WHISPER_MODEL || 'tiny'));
   console.log('[STT][CONFIG] Device: ' + (process.env.WHISPER_DEVICE || 'cpu'));
   console.log('[STT][CONFIG] Compute Type: ' + (process.env.WHISPER_COMPUTE_TYPE || 'int8'));
   console.log('[STT][CONFIG] 100% Free & Local — Zero external API dependencies.');
@@ -24,14 +32,15 @@ async function transcribeAudioFile(filePath, originalFilename = 'speech.webm', m
   const fileBuffer = fs.readFileSync(filePath);
   const audioBlob = new Blob([fileBuffer], { type: mimeType || 'audio/webm' });
   const filename = originalFilename || 'speech_chunk.webm';
+  const serviceUrl = getPythonSttUrl();
 
-  console.log('[VOICE][STT] Uploading audio to local faster-whisper service (' + PYTHON_STT_URL + ')');
+  console.log('[VOICE][STT] Uploading audio to faster-whisper service (' + serviceUrl + ')');
 
   try {
     const formData = new FormData();
     formData.append('audio', audioBlob, filename);
 
-    const response = await fetch(PYTHON_STT_URL, {
+    const response = await fetch(serviceUrl, {
       method: 'POST',
       body: formData
     });
@@ -70,7 +79,7 @@ async function transcribeAudioFile(filePath, originalFilename = 'speech.webm', m
     console.error('[STT][BACKEND] Connection to faster-whisper failed:', err.message);
     return {
       success: false,
-      error: 'تعذر الاتصال بخدمة faster-whisper المحلية على (' + PYTHON_STT_URL + '). يرجى التأكد من تشغيل stt_service.',
+      error: 'تعذر الاتصال بخدمة faster-whisper المحلية على (' + serviceUrl + '). يرجى التأكد من تشغيل stt_service.',
       code: 'STT_SERVICE_UNAVAILABLE',
       statusCode: 503
     };
@@ -80,5 +89,5 @@ async function transcribeAudioFile(filePath, originalFilename = 'speech.webm', m
 module.exports = {
   transcribeAudioFile,
   logSttConfiguration,
-  PYTHON_STT_URL
+  getPythonSttUrl
 };
