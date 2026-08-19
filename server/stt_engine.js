@@ -47,15 +47,16 @@ async function transcribeAudioFile(filePath, originalFilename = 'speech.webm', m
 
     if (response.ok) {
       const data = await response.json();
-      if (data && data.success && data.text) {
+      if (data && data.success && typeof data.text === 'string') {
+        const text = data.text.trim();
         console.log('[VOICE][STT] Response received from faster-whisper');
-        console.log('[VOICE][STT] Transcript: "' + data.text.trim() + '"');
+        console.log('[VOICE][STT] Transcript: "' + text + '"');
         return {
           success: true,
-          text: data.text.trim(),
+          text: text,
           provider: 'local-faster-whisper',
           language: 'ar',
-          model: data.model || process.env.WHISPER_MODEL || 'base'
+          model: data.model || process.env.WHISPER_MODEL || 'tiny'
         };
       } else {
         console.warn('[STT][BACKEND] faster-whisper returned non-success:', data);
