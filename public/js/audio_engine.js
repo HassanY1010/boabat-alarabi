@@ -321,12 +321,20 @@ class AudioEngine {
     const formData = new FormData();
     formData.append('audio', audioBlob, 'speech_utterance.webm');
 
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timeoutId = setTimeout(() => {
+      console.warn('[VOICE][STT][TIMEOUT] Request exceeded 60 seconds');
+      if (controller) controller.abort();
+    }, 60000);
+
     try {
       console.log('[VOICE][STT] Fetch started');
       const res = await fetch('/api/v1/speech/transcribe', {
         method: 'POST',
-        body: formData
+        body: formData,
+        signal: controller ? controller.signal : undefined
       });
+      clearTimeout(timeoutId);
 
       console.log('[VOICE][STT] HTTP response received status=' + res.status);
       console.log('[VOICE][STT] response.ok=' + res.ok);
@@ -363,8 +371,14 @@ class AudioEngine {
         console.log('[VOICE][PLATE] No complete plate detected');
       }
     } catch (err) {
-      console.error('[VOICE][STT] Upload error:', err.message);
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        console.warn('[VOICE][STT][TIMEOUT] Request exceeded 60 seconds');
+      } else {
+        console.error('[VOICE][STT] Upload error:', err.message);
+      }
     } finally {
+      clearTimeout(timeoutId);
       this.isTranscribing = false;
     }
   }

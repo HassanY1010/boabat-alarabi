@@ -1,5 +1,5 @@
 /**
- * Boabat Al-Arabi - Enterprise Deterministic Arabic Plate Parser
+ * Boabat Al-Arabi - Enterprise Deterministic Arabic Plate Parser & Validator
  */
 
 const CLIENT_LETTER_NAMES = {
@@ -72,6 +72,61 @@ function clientNormalizeDigits(str) {
   return str.replace(/[٠-٩]/g, d => map[d] || d);
 }
 
+function validatePlateCandidate(candidate, metadata = {}) {
+  if (!candidate) {
+    return { valid: false, reason: 'empty_candidate' };
+  }
+
+  const letters = (candidate.lettersCanonical || (candidate.letters || '').replace(/\s+/g, '')).trim();
+  const numbers = (candidate.numbersCanonical || (candidate.numbers || '').replace(/\s+/g, '')).trim();
+  const canonicalPlate = candidate.canonicalPlate || (letters + numbers);
+
+  const sourceDigitCount = metadata.sourceDigitCount || (candidate.digitsList ? candidate.digitsList.length : numbers.length);
+
+  // 1. Letters count check (must be exactly 3 Arabic letters)
+  if (letters.length !== 3 || !/^[\u0621-\u064A]{3}$/.test(letters)) {
+    console.log('[VOICE][PLATE][VALIDATION] Candidate: ' + (canonicalPlate || 'unknown'));
+    console.log('[VOICE][PLATE][VALIDATION] REJECTED reason=invalid_letter_count count=' + letters.length);
+    return {
+      valid: false,
+      reason: 'invalid_letter_count',
+      count: letters.length
+    };
+  }
+
+  // 2. Source digit sequence runaway check (e.g. Whisper hallucination > 4 digits)
+  if (sourceDigitCount > 4) {
+    console.log('[VOICE][PLATE][VALIDATION] Candidate: ' + canonicalPlate);
+    console.log('[VOICE][PLATE][VALIDATION] REJECTED reason=digit_sequence_too_long sourceDigitCount=' + sourceDigitCount);
+    return {
+      valid: false,
+      reason: 'digit_sequence_too_long',
+      sourceDigitCount: sourceDigitCount
+    };
+  }
+
+  // 3. Digits count check (must be exactly 4 digits)
+  if (numbers.length !== 4 || !/^\d{4}$/.test(numbers)) {
+    console.log('[VOICE][PLATE][VALIDATION] Candidate: ' + canonicalPlate);
+    console.log('[VOICE][PLATE][VALIDATION] REJECTED reason=invalid_digit_count count=' + numbers.length);
+    return {
+      valid: false,
+      reason: 'invalid_digit_count',
+      count: numbers.length
+    };
+  }
+
+  console.log('[VOICE][PLATE][VALIDATION] Candidate: ' + canonicalPlate);
+  console.log('[VOICE][PLATE][VALIDATION] VALID');
+
+  return {
+    valid: true,
+    normalized: canonicalPlate,
+    lettersCanonical: letters,
+    numbersCanonical: numbers
+  };
+}
+
 function clientTokenize(rawText) {
   if (!rawText) return [];
   // 1. Convert Eastern digits to ASCII digits
@@ -87,7 +142,7 @@ function clientTokenize(rawText) {
     const norm = clientNormalizeArabic(raw);
     if (CLIENT_NOISE.has(raw) || CLIENT_NOISE.has(norm)) continue;
 
-    // A. Check for raw ASCII digit strings e.g. "2524" or "2"
+    // A. Check for raw ASCII digit strings e.g. "2524" or "2" or long "2222222222"
     if (/^\d+$/.test(raw)) {
       for (const d of raw) {
         tokens.push({ type: 'DIGIT', value: d, raw: d });
@@ -160,29 +215,53 @@ function clientParsePlateTranscript(rawText) {
   console.log('[VOICE][PLATE] Letter tokens:', letterTokens);
   console.log('[VOICE][PLATE] Digit tokens:', digitTokens);
 
-  const candidates = [];
+  const rawCandidates = [];
   let curLetters = [];
   let curDigits = [];
 
-  function flushCandidate() {
-    if (curLetters.length >= 2 && curLetters.length <= 4 && curDigits.length >= 1 && curDigits.length <= 4) {
-      const finalLetters = curLetters.slice(0, 3);
-      const lettersDisplay = finalLetters.join(' ');
-      const lettersCanonical = finalLetters.join('');
-      const digitsDisplay = curDigits.join(' ');
-      const digitsCanonical = curDigits.join('');
-      const canonical = lettersCanonical + digitsCanonical;
+  function evaluateCandidateCluster() {
+    if (curLetters.length >= 1 || curDigits.length >= 1) {
+      const sourceDigitCount = curDigits.length;
+      const sourceLetterCount = curLetters.length;
 
-      candidates.push({
-        letters: lettersDisplay,
-        lettersCanonical: lettersCanonical,
-        numbers: digitsDisplay,
-        digitsList: [...curDigits],
-        numbersCanonical: digitsCanonical,
-        canonicalPlate: canonical,
-        plateDisplay: lettersDisplay + ' ' + digitsDisplay,
-        confidence: 0.98
-      });
+      if (sourceDigitCount > 4) {
+        console.log('[VOICE][PLATE] REJECTED: invalid digit sequence length');
+      }
+
+      if (sourceLetterCount === 3 && sourceDigitCount === 4) {
+        const lettersDisplay = curLetters.join(' ');
+        const lettersCanonical = curLetters.join('');
+        const digitsDisplay = curDigits.join(' ');
+        const digitsCanonical = curDigits.join('');
+        const canonical = lettersCanonical + digitsCanonical;
+
+        const cand = {
+          letters: lettersDisplay,
+          lettersCanonical: lettersCanonical,
+          numbers: digitsDisplay,
+          digitsList: [...curDigits],
+          numbersCanonical: digitsCanonical,
+          canonicalPlate: canonical,
+          plateDisplay: lettersDisplay + ' ' + digitsDisplay,
+          confidence: 0.98
+        };
+
+        const valResult = validatePlateCandidate(cand, { sourceDigitCount });
+        if (valResult.valid) {
+          rawCandidates.push(cand);
+        }
+      } else {
+        // Evaluate through validator for structured rejection log
+        const cand = {
+          letters: curLetters.join(' '),
+          lettersCanonical: curLetters.join(''),
+          numbers: curDigits.join(' '),
+          digitsList: [...curDigits],
+          numbersCanonical: curDigits.join(''),
+          canonicalPlate: curLetters.join('') + curDigits.join('')
+        };
+        validatePlateCandidate(cand, { sourceDigitCount });
+      }
     }
     curLetters = [];
     curDigits = [];
@@ -191,62 +270,46 @@ function clientParsePlateTranscript(rawText) {
   for (let i = 0; i < tokens.length; i++) {
     const tok = tokens[i];
     if (tok.type === 'LETTER') {
-      // If we already collected digits and encounter letters again, flush current completed plate
+      // If digits were already being accumulated and letters appear again, close previous cluster
       if (curDigits.length >= 1) {
-        flushCandidate();
+        evaluateCandidateCluster();
       }
-      if (curLetters.length < 3) {
-        curLetters.push(tok.value);
-      }
+      curLetters.push(tok.value);
     } else if (tok.type === 'DIGIT') {
-      if (curLetters.length >= 2) {
-        if (curDigits.length < 4) {
-          curDigits.push(tok.value);
-        }
-        // If 4 digits reached, flush completed candidate
-        if (curDigits.length === 4) {
-          flushCandidate();
-        }
+      if (curLetters.length >= 1) {
+        curDigits.push(tok.value);
       }
     }
   }
 
-  flushCandidate();
+  evaluateCandidateCluster();
 
-  // Fallback: If no candidate was formed via streaming scan but tokens exist
-  if (candidates.length === 0 && letterTokens.length >= 2 && digitTokens.length >= 1) {
-    const fallbackLetters = letterTokens.slice(0, 3);
-    const fallbackDigits = digitTokens.slice(0, 4);
-    const lettersDisplay = fallbackLetters.join(' ');
-    const lettersCanonical = fallbackLetters.join('');
-    const digitsDisplay = fallbackDigits.join(' ');
-    const digitsCanonical = fallbackDigits.join('');
-    const canonical = lettersCanonical + digitsCanonical;
+  // Deduplicate candidates strictly
+  const uniqueCandidates = [];
+  const seenPlates = new Set();
 
-    candidates.push({
-      letters: lettersDisplay,
-      lettersCanonical: lettersCanonical,
-      numbers: digitsDisplay,
-      digitsList: fallbackDigits,
-      numbersCanonical: digitsCanonical,
-      canonicalPlate: canonical,
-      plateDisplay: lettersDisplay + ' ' + digitsDisplay,
-      confidence: 0.95
-    });
+  for (const c of rawCandidates) {
+    if (!seenPlates.has(c.canonicalPlate)) {
+      seenPlates.add(c.canonicalPlate);
+      uniqueCandidates.push(c);
+    }
   }
 
-  const candidateNames = candidates.map(c => c.canonicalPlate);
+  const candidateNames = uniqueCandidates.map(c => c.canonicalPlate);
   console.log('[VOICE][PLATE] Candidate plates:', candidateNames);
-  if (candidates.length > 0) {
-    console.log('[VOICE][PLATE] Selected candidate:', candidates[0].canonicalPlate);
+  console.log('[VOICE][PLATE] Unique candidates:', candidateNames);
+
+  if (uniqueCandidates.length > 0) {
+    console.log('[VOICE][PLATE] Selected candidate:', uniqueCandidates[0].canonicalPlate);
   }
 
-  return candidates;
+  return uniqueCandidates;
 }
 
 if (typeof window !== 'undefined') {
   window.clientPlateParser = {
     parsePlateTranscript: clientParsePlateTranscript,
+    validatePlateCandidate: validatePlateCandidate,
     normalizeArabic: clientNormalizeArabic,
     normalizeDigits: clientNormalizeDigits,
     tokenize: clientTokenize
@@ -256,6 +319,7 @@ if (typeof window !== 'undefined') {
 if (typeof module !== 'undefined') {
   module.exports = {
     clientParsePlateTranscript,
+    validatePlateCandidate,
     clientNormalizeArabic,
     clientNormalizeDigits,
     clientTokenize
