@@ -407,11 +407,11 @@ class AppController {
     }
   }
 
-  processSpokenText(phrase, chunk = null) {
+  async processSpokenText(phrase, chunk = null) {
     if (!phrase) return;
     this.updateLiveTranscript(phrase);
 
-    // 1. Parse active accumulated phrase
+    // 1. Parse active phrase
     let candidates = window.clientPlateParser.parsePlateTranscript(phrase);
 
     // 2. Fallback: Parse latest chunk if phrase had prior noise
@@ -420,7 +420,11 @@ class AppController {
     }
 
     if (candidates.length > 0) {
-      candidates.forEach(c => this.handlePlateCandidateDetected(c, phrase));
+      for (const c of candidates) {
+        await this.handlePlateCandidateDetected(c, phrase);
+      }
+    } else {
+      console.log('[VOICE][PLATE] No complete plate detected');
     }
   }
 

@@ -1,10 +1,14 @@
 /**
- * Boabat Al-Arabi - Enterprise VAD-Powered MediaRecorder Audio Engine
- * Features:
- * - Real-Time AudioContext Voice Activity Detection (VAD)
- * - Automatic speech start and silence end detection (no arbitrary blind 3.5s cutting)
- * - Complete, standalone WebM files with valid headers per spoken plate
- * - Clean asynchronous pipeline: Speech -> Silence -> Stop -> Upload -> Whisper STT -> Plate Parser -> Table
+ * Boabat Al-Arabi - Enterprise Deterministic Voice State Machine
+ * 
+ * Strict State Machine Flow:
+ * IDLE -> LISTENING -> RECORDING -> STOPPING -> TRANSCRIBING -> PROCESSING -> LISTENING
+ * 
+ * Rules:
+ * 1. MediaRecorder starts ONLY when speech is detected (hasSpeech = true).
+ * 2. If silence occurs without speech: No recording is created, no STT called.
+ * 3. Exact one recorder.stop() per utterance.
+ * 4. Next listening cycle starts ONLY after complete STT + DB Wanted check + Table update.
  */
 
 class AudioEngine {
@@ -13,31 +17,45 @@ class AudioEngine {
     this.onTranscriptUpdate = onTranscriptUpdate;
     this.onStatusChange = onStatusChange;
 
+    // FSM State: IDLE | LISTENING | RECORDING | STOPPING | TRANSCRIBING | PROCESSING
+    this.state = 'IDLE';
     this.isListening = false;
     this.mediaStream = null;
     this.audioCtx = null;
     this.analyser = null;
     this.activeRecorder = null;
     this.sessionToken = 0;
-    this.isProcessingSTT = false;
+
+    // State Guards
+    this.hasSpeech = false;
+    this.isRecording = false;
+    this.isStopping = false;
+    this.isTranscribing = false;
+    this.cycleChunks = [];
+    this.actualMime = 'audio/webm';
 
     // VAD Configuration
-    this.SILENCE_TIMEOUT_MS = 900; // Time of silence before finalizing utterance
-    this.MIN_SPEECH_DURATION_MS = 500; // Minimum speech to consider valid utterance
-    this.MAX_RECORDING_DURATION_MS = 6000; // Safety maximum duration per utterance (6 seconds max)
-    this.SPEECH_THRESHOLD = 0.016; // Audio RMS energy threshold
+    this.SILENCE_TIMEOUT_MS = 900; // Silence duration to finalize utterance
+    this.MIN_SPEECH_DURATION_MS = 500; // Minimum speech duration
+    this.MAX_RECORDING_DURATION_MS = 6000; // Max duration safety limit per utterance
+    this.SPEECH_THRESHOLD = 0.016; // Audio energy RMS threshold
 
-    this.isSpeaking = false;
     this.speechStartTime = 0;
     this.silenceStartTime = 0;
-    this.hasSpokenInThisCycle = false;
     this.vadInterval = null;
     this.maxDurationTimer = null;
 
+    // UI Elements
     this.canvas = document.getElementById('audioVisualizerCanvas');
     this.canvasCtx = this.canvas ? this.canvas.getContext('2d') : null;
     this.audioBadge = document.getElementById('audioLevelBadge');
     this.liveTranscript = document.getElementById('liveTranscript');
+  }
+
+  transitionState(newState) {
+    if (this.state === newState) return;
+    console.log('[VOICE][STATE] ' + this.state + ' -> ' + newState);
+    this.state = newState;
   }
 
   updateStatus(stateText, isError = false) {
@@ -51,7 +69,7 @@ class AudioEngine {
   }
 
   getOptimalMimeType() {
-    if (typeof MediaRecorder === 'undefined') return '';
+    if (typeof MediaRecorder === 'undefined' || typeof MediaRecorder.isTypeSupported !== 'function') return 'audio/webm';
     const candidates = [
       'audio/webm;codecs=opus',
       'audio/webm',
@@ -64,7 +82,7 @@ class AudioEngine {
         return type;
       }
     }
-    return '';
+    return 'audio/webm';
   }
 
   async startListening() {
@@ -75,9 +93,10 @@ class AudioEngine {
     const currentSession = ++this.sessionToken;
 
     console.log('[VOICE][SESSION] Started');
-    this.updateStatus('🎙️ يستمع الآن... تفضل بنطق لوحة السيارة بشكل طبيعي');
+    this.transitionState('LISTENING');
+    this.updateStatus('🎙️ يستمع الآن... تفضل بنطق لوحة السيارة');
 
-    // 1. Acquire real microphone stream
+    // 1. Acquire microphone stream
     try {
       this.mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -87,7 +106,7 @@ class AudioEngine {
         }
       });
     } catch (err) {
-      console.error('[VOICE][ERROR] Microphone permission failed:', err);
+      console.error('[VOICE][ERROR] Microphone access error:', err);
       this.updateStatus('❌ تعذر الوصول إلى الميكروفون. يرجى منح الإذن في المتصفح.', true);
       this.stopListening();
       return;
@@ -98,7 +117,7 @@ class AudioEngine {
       return;
     }
 
-    // 2. Setup Web Audio API Analyser for real-time VAD & visualizer
+    // 2. Setup Web Audio API Analyser for VAD & UI visualizer
     try {
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
       this.audioCtx = new AudioContextClass();
@@ -108,102 +127,11 @@ class AudioEngine {
       this.analyser.smoothingTimeConstant = 0.3;
       source.connect(this.analyser);
     } catch (e) {
-      console.warn('[VOICE][WARN] AudioContext VAD initialization failed, fallback to timer mode:', e);
+      console.warn('[VOICE][WARN] AudioContext initialization failed:', e);
     }
 
-    // 3. Start VAD monitoring loop & recording cycle
+    // 3. Start VAD monitoring loop
     this.startVadMonitoring(currentSession);
-    this.startRecordingCycle(currentSession);
-  }
-
-  startRecordingCycle(sessionToken) {
-    if (!this.isListening || this.sessionToken !== sessionToken || !this.mediaStream) {
-      return;
-    }
-
-    const mimeType = this.getOptimalMimeType();
-    let recorder;
-
-    try {
-      recorder = new MediaRecorder(this.mediaStream, mimeType ? { mimeType } : undefined);
-    } catch (e) {
-      recorder = new MediaRecorder(this.mediaStream);
-    }
-
-    this.activeRecorder = recorder;
-    const cycleChunks = [];
-    const actualMime = recorder.mimeType || mimeType || 'audio/webm';
-
-    this.isSpeaking = false;
-    this.speechStartTime = 0;
-    this.silenceStartTime = 0;
-    this.hasSpokenInThisCycle = false;
-
-    recorder.ondataavailable = (event) => {
-      if (event.data && event.data.size > 0) {
-        cycleChunks.push(event.data);
-      }
-    };
-
-    recorder.onstop = async () => {
-      console.log('[VOICE][RECORDER] Recording stopped');
-
-      if (this.maxDurationTimer) {
-        clearTimeout(this.maxDurationTimer);
-        this.maxDurationTimer = null;
-      }
-
-      if (!this.isListening || this.sessionToken !== sessionToken) {
-        return;
-      }
-
-      const hadValidSpeech = this.hasSpokenInThisCycle;
-      this.hasSpokenInThisCycle = false;
-      this.isSpeaking = false;
-
-      if (cycleChunks.length === 0 || !hadValidSpeech) {
-        // No speech detected in this cycle, seamlessly restart listening
-        if (this.isListening && this.sessionToken === sessionToken && !this.isTranscribing) {
-          this.startRecordingCycle(sessionToken);
-        }
-        return;
-      }
-
-      // Create a standalone WebM Blob with complete file header
-      const completeAudioBlob = new Blob(cycleChunks, { type: actualMime });
-      console.log('[VOICE][AUDIO] Complete blob created (' + completeAudioBlob.size + ' bytes)');
-
-      if (completeAudioBlob.size > 1500) {
-        this.isTranscribing = true;
-        await this.uploadAndTranscribeBlob(completeAudioBlob, sessionToken);
-        this.isTranscribing = false;
-      }
-
-      // Start next listening cycle ONLY AFTER STT response completes
-      if (this.isListening && this.sessionToken === sessionToken) {
-        this.startRecordingCycle(sessionToken);
-      }
-    };
-
-    // Start recorder
-    try {
-      recorder.start();
-      console.log('[VOICE][RECORDER] Recording started');
-    } catch (err) {
-      console.error('[VOICE][ERROR] Recorder start failed:', err);
-      this.stopListening();
-      return;
-    }
-
-    // Maximum safety duration limit per utterance
-    this.maxDurationTimer = setTimeout(() => {
-      if (this.isListening && this.sessionToken === sessionToken && recorder.state === 'recording') {
-        if (this.hasSpokenInThisCycle) {
-          console.log('[VOICE][SILENCE] Maximum recording limit reached, finalizing...');
-        }
-        try { recorder.stop(); } catch (e) {}
-      }
-    }, this.MAX_RECORDING_DURATION_MS);
   }
 
   startVadMonitoring(sessionToken) {
@@ -228,8 +156,8 @@ class AudioEngine {
         this.drawVisualizer(rms);
       }
 
-      // During active STT request, VAD is paused
-      if (this.isTranscribing) {
+      // If active STT or Processing is in progress, ignore speech triggers
+      if (this.state === 'TRANSCRIBING' || this.state === 'PROCESSING' || this.state === 'STOPPING') {
         return;
       }
 
@@ -238,26 +166,25 @@ class AudioEngine {
 
       if (isAudible) {
         this.silenceStartTime = 0;
-        if (!this.isSpeaking) {
-          this.isSpeaking = true;
+
+        if (this.state === 'LISTENING') {
+          // Speech detected! Transition from LISTENING to RECORDING
+          this.hasSpeech = true;
           this.speechStartTime = now;
-          this.hasSpokenInThisCycle = true;
           console.log('[VOICE][SPEECH] Speech detected');
-          this.updateStatus('🎙️ جاري التحدث... استمر بنطق اللوحة');
+          this.transitionState('RECORDING');
+          this.beginUtteranceRecording(sessionToken);
         }
       } else {
         // In silence
-        if (this.isSpeaking) {
+        if (this.state === 'RECORDING') {
           if (!this.silenceStartTime) {
             this.silenceStartTime = now;
           } else if (now - this.silenceStartTime >= this.SILENCE_TIMEOUT_MS) {
             const speechDuration = now - this.speechStartTime;
             if (speechDuration >= this.MIN_SPEECH_DURATION_MS) {
               console.log('[VOICE][SILENCE] Silence detected');
-              this.isSpeaking = false;
-              if (this.activeRecorder && this.activeRecorder.state === 'recording') {
-                try { this.activeRecorder.stop(); } catch (e) {}
-              }
+              this.stopUtteranceRecording(sessionToken, 'silence');
             }
           }
         }
@@ -265,9 +192,128 @@ class AudioEngine {
     }, 60);
   }
 
+  beginUtteranceRecording(sessionToken) {
+    if (this.state !== 'RECORDING' || !this.mediaStream) return;
+
+    this.cycleChunks = [];
+    const mimeType = this.getOptimalMimeType();
+    let recorder;
+
+    try {
+      recorder = new MediaRecorder(this.mediaStream, mimeType ? { mimeType } : undefined);
+    } catch (e) {
+      recorder = new MediaRecorder(this.mediaStream);
+    }
+
+    this.activeRecorder = recorder;
+    this.actualMime = recorder.mimeType || mimeType || 'audio/webm';
+    this.isRecording = true;
+    this.isStopping = false;
+
+    recorder.ondataavailable = (event) => {
+      if (event.data && event.data.size > 0) {
+        this.cycleChunks.push(event.data);
+      }
+    };
+
+    recorder.onstop = async () => {
+      console.log('[VOICE][RECORDER] Recording stopped');
+      this.isRecording = false;
+
+      if (this.maxDurationTimer) {
+        clearTimeout(this.maxDurationTimer);
+        this.maxDurationTimer = null;
+      }
+
+      if (!this.isListening || this.sessionToken !== sessionToken) {
+        return;
+      }
+
+      // Check if valid speech was captured
+      if (!this.hasSpeech || this.cycleChunks.length === 0) {
+        console.log('[VOICE][SILENCE] No speech detected');
+        console.log('[VOICE][RECORDER] Discarding silent recording');
+        this.resetToListeningState(sessionToken);
+        return;
+      }
+
+      const completeAudioBlob = new Blob(this.cycleChunks, { type: this.actualMime });
+      console.log('[VOICE][AUDIO] Complete blob created (' + completeAudioBlob.size + ' bytes)');
+
+      if (completeAudioBlob.size < 1500) {
+        console.log('[VOICE][RECORDER] Discarding silent recording');
+        this.resetToListeningState(sessionToken);
+        return;
+      }
+
+      // Transition to TRANSCRIBING
+      this.transitionState('TRANSCRIBING');
+      await this.uploadAndTranscribeBlob(completeAudioBlob, sessionToken);
+
+      // Return to LISTENING only after complete STT + Pipeline finishes
+      if (this.isListening && this.sessionToken === sessionToken) {
+        this.resetToListeningState(sessionToken);
+      }
+    };
+
+    try {
+      recorder.start();
+      console.log('[VOICE][RECORDER] Recording started');
+      this.updateStatus('🎙️ جاري التحدث... استمر بنطق اللوحة');
+    } catch (err) {
+      console.error('[VOICE][ERROR] Failed to start MediaRecorder:', err);
+      this.resetToListeningState(sessionToken);
+      return;
+    }
+
+    // Safety maximum duration timer
+    this.maxDurationTimer = setTimeout(() => {
+      if (this.state === 'RECORDING' && this.sessionToken === sessionToken) {
+        console.log('[VOICE][SILENCE] Maximum recording duration reached');
+        this.stopUtteranceRecording(sessionToken, 'max_duration');
+      }
+    }, this.MAX_RECORDING_DURATION_MS);
+  }
+
+  stopUtteranceRecording(sessionToken, reason = 'silence') {
+    if (this.state !== 'RECORDING' || this.isStopping) return;
+    this.isStopping = true;
+
+    this.transitionState('STOPPING');
+
+    if (this.maxDurationTimer) {
+      clearTimeout(this.maxDurationTimer);
+      this.maxDurationTimer = null;
+    }
+
+    if (this.activeRecorder && this.activeRecorder.state === 'recording') {
+      try {
+        this.activeRecorder.stop();
+      } catch (err) {
+        console.warn('[VOICE][WARN] Error stopping recorder:', err);
+      }
+    }
+  }
+
+  resetToListeningState(sessionToken) {
+    this.hasSpeech = false;
+    this.isRecording = false;
+    this.isStopping = false;
+    this.isTranscribing = false;
+    this.cycleChunks = [];
+    this.silenceStartTime = 0;
+    this.speechStartTime = 0;
+
+    if (this.isListening && this.sessionToken === sessionToken) {
+      this.transitionState('LISTENING');
+      console.log('[VOICE][RECORDER] Starting next listening cycle');
+      this.updateStatus('🎙️ يستمع الآن... تفضل بنطق لوحة السيارة');
+    }
+  }
+
   async uploadAndTranscribeBlob(audioBlob, sessionToken) {
-    if (this.isProcessingSTT) return;
-    this.isProcessingSTT = true;
+    if (this.isTranscribing) return;
+    this.isTranscribing = true;
 
     console.log('[VOICE][STT] Uploading complete recording (' + audioBlob.size + ' bytes)');
     this.updateStatus('⬆️ جاري معالجة الصوت وتحويله إلى نص...');
@@ -282,11 +328,11 @@ class AudioEngine {
         body: formData
       });
 
-      console.log(`[VOICE][STT] HTTP response received status=${res.status}`);
-      console.log(`[VOICE][STT] response.ok=${res.ok}`);
+      console.log('[VOICE][STT] HTTP response received status=' + res.status);
+      console.log('[VOICE][STT] response.ok=' + res.ok);
 
       const rawText = await res.text();
-      console.log(`[VOICE][STT] Raw response=${rawText}`);
+      console.log('[VOICE][STT] Raw response=' + rawText);
 
       let data;
       try {
@@ -299,9 +345,11 @@ class AudioEngine {
 
       if (data.success && typeof data.text === 'string' && data.text.trim().length > 0) {
         const recognizedTranscript = data.text.trim();
-        console.log(`[VOICE][STT] Transcript received: "${recognizedTranscript}"`);
+        console.log('[VOICE][STT] Transcript received: "' + recognizedTranscript + '"');
+
+        this.transitionState('PROCESSING');
         console.log('[VOICE][PIPELINE] Calling processSpokenText()');
-        this.updateStatus(`🔎 تم التعرف: "${recognizedTranscript}"`);
+        this.updateStatus('🔎 تم التعرف: "' + recognizedTranscript + '"');
 
         if (this.onTranscriptUpdate) {
           this.onTranscriptUpdate(recognizedTranscript);
@@ -311,30 +359,22 @@ class AudioEngine {
         }
         console.log('[VOICE][PIPELINE] processSpokenText() completed');
       } else {
-        if (data.error) {
-          console.warn('[VOICE][STT] STT response notice:', data.error);
-        }
-        if (this.isListening) {
-          this.updateStatus('🎙️ يستمع الآن... تفضل بنطق لوحة السيارة بشكل طبيعي');
-        }
+        console.log('[VOICE][STT] Transcript received: ""');
+        console.log('[VOICE][PLATE] No complete plate detected');
       }
     } catch (err) {
       console.error('[VOICE][STT] Upload error:', err.message);
-      if (this.isListening) {
-        this.updateStatus('⚠️ تعذر الاتصال، يستمر الاستماع...');
-      }
     } finally {
-      this.isProcessingSTT = false;
+      this.isTranscribing = false;
     }
   }
 
   stopListening() {
     this.isListening = false;
     this.sessionToken++;
-    this.isProcessingSTT = false;
+    this.transitionState('IDLE');
 
     this.cleanup();
-
     this.clearVisualizer();
     if (this.audioBadge) this.audioBadge.textContent = 'صامت';
     this.updateStatus('تم إيقاف الجلسة الصوتية مؤقتًا');
@@ -371,6 +411,11 @@ class AudioEngine {
       this.mediaStream = null;
     }
 
+    this.hasSpeech = false;
+    this.isRecording = false;
+    this.isStopping = false;
+    this.isTranscribing = false;
+    this.cycleChunks = [];
     console.log('[VOICE][RECORDER] Cleanup complete');
   }
 
@@ -390,12 +435,12 @@ class AudioEngine {
       const x = i * (barWidth + 2);
       const y = height - barHeight;
 
-      this.canvasCtx.fillStyle = this.isSpeaking ? '#00F5D4' : '#26E6C8';
+      this.canvasCtx.fillStyle = this.state === 'RECORDING' ? '#00F5D4' : '#26E6C8';
       this.canvasCtx.fillRect(x, y, barWidth, barHeight);
     }
 
     if (this.audioBadge) {
-      this.audioBadge.textContent = this.isSpeaking ? 'نشط 🎙️' : (level > 0.05 ? 'متوسط' : 'هادئ');
+      this.audioBadge.textContent = this.state === 'RECORDING' ? 'نشط 🎙️' : (level > 0.05 ? 'متوسط' : 'هادئ');
     }
   }
 
@@ -405,4 +450,10 @@ class AudioEngine {
   }
 }
 
-window.AudioEngine = AudioEngine;
+if (typeof window !== 'undefined') {
+  window.AudioEngine = AudioEngine;
+}
+
+if (typeof module !== 'undefined') {
+  module.exports = { AudioEngine };
+}
