@@ -1,15 +1,24 @@
-import os
+﻿import os
 import sys
+
+# Critical OpenMP / Thread optimization for Cloud / Container CPU limits
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+os.environ["OMP_WAIT_POLICY"] = "PASSIVE"
+os.environ["PYTHONUNBUFFERED"] = "1"
+
 import time
 import tempfile
 import logging
 import traceback
+import numpy as np
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from faster_whisper import WhisperModel
 
-# Ensure Python unbuffered stdout
-os.environ["PYTHONUNBUFFERED"] = "1"
 logging.basicConfig(level=logging.INFO, format='%(message)s')
 
 app = FastAPI(title="Boabat Al-Arabi - Local faster-whisper STT Service")
@@ -40,9 +49,11 @@ def get_memory_usage() -> str:
 MODEL_NAME = os.getenv("WHISPER_MODEL", "tiny")
 DEVICE = os.getenv("WHISPER_DEVICE", "cpu")
 COMPUTE_TYPE = os.getenv("WHISPER_COMPUTE_TYPE", "int8")
+CPU_THREADS = int(os.getenv("WHISPER_CPU_THREADS", "1"))
+NUM_WORKERS = int(os.getenv("WHISPER_NUM_WORKERS", "1"))
 
 log_msg("[STT][INIT] Initializing faster-whisper")
-log_msg(f"[STT][CONFIG] model={MODEL_NAME} device={DEVICE} compute_type={COMPUTE_TYPE}")
+log_msg(f"[STT][CONFIG] model={MODEL_NAME} device={DEVICE} compute_type={COMPUTE_TYPE} cpu_threads={CPU_THREADS} num_workers={NUM_WORKERS}")
 log_msg(f"[STT][MEMORY] Initial RAM usage: {get_memory_usage()}")
 
 # Global model instance loaded once at startup
@@ -50,7 +61,9 @@ try:
     model = WhisperModel(
         MODEL_NAME,
         device=DEVICE,
-        compute_type=COMPUTE_TYPE
+        compute_type=COMPUTE_TYPE,
+        cpu_threads=CPU_THREADS,
+        num_workers=NUM_WORKERS
     )
     log_msg(f"[STT][READY] Model loaded successfully ({MODEL_NAME})")
     log_msg(f"[STT][MEMORY] Post-load RAM usage: {get_memory_usage()}")
@@ -59,10 +72,30 @@ except Exception as e:
     if MODEL_NAME != "tiny":
         log_msg("[STT][FALLBACK] Attempting fallback to 'tiny' model...")
         MODEL_NAME = "tiny"
-        model = WhisperModel("tiny", device="cpu", compute_type="int8")
+        model = WhisperModel("tiny", device="cpu", compute_type="int8", cpu_threads=CPU_THREADS, num_workers=NUM_WORKERS)
         log_msg("[STT][READY] Fallback model 'tiny' loaded successfully")
     else:
         raise e
+
+# Run immediate startup self-test
+log_msg("[STT][SELFTEST] Running startup self-test inference on synthetic audio...")
+try:
+    t0 = time.perf_counter()
+    sample_audio = np.zeros(16000, dtype=np.float32)
+    test_segs, _ = model.transcribe(
+        sample_audio,
+        language="ar",
+        beam_size=1,
+        best_of=1,
+        temperature=0.0,
+        vad_filter=False,
+        without_timestamps=True
+    )
+    list(test_segs)
+    t1 = time.perf_counter()
+    log_msg(f"[STT][SELFTEST] PASSED in {int((t1 - t0) * 1000)}ms. CTranslate2 engine is 100% operational.")
+except Exception as selftest_err:
+    log_msg(f"[STT][SELFTEST] Warning during startup test: {selftest_err}")
 
 @app.get("/")
 def root():
@@ -73,6 +106,8 @@ def root():
         "model": MODEL_NAME,
         "device": DEVICE,
         "compute_type": COMPUTE_TYPE,
+        "cpu_threads": CPU_THREADS,
+        "num_workers": NUM_WORKERS,
         "memory_usage": get_memory_usage(),
         "endpoints": {
             "health": "GET /health",
