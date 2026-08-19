@@ -164,14 +164,16 @@ app.post('/api/v1/speech/transcribe', upload.single('audio'), async (req, res) =
       return res.json({
         success: true,
         text: result.text,
-        provider: result.provider || 'whisper'
+        provider: result.provider || 'local-faster-whisper',
+        language: result.language || 'ar',
+        model: result.model || 'base'
       });
     } else {
-      const statusCode = result.statusCode || (result.code === 'STT_CONFIG_REQUIRED' ? 503 : 500);
+      const statusCode = result.statusCode || 500;
       return res.status(statusCode).json({
         success: false,
         error: result.error,
-        code: result.code || 'STT_ERROR'
+        code: result.code || 'STT_TRANSCRIPTION_FAILED'
       });
     }
   } catch (err) {

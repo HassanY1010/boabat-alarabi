@@ -1,19 +1,14 @@
 ﻿const fs = require('fs');
 
+const PYTHON_STT_URL = process.env.PYTHON_STT_URL || 'http://127.0.0.1:5001/transcribe';
+
 function logSttConfiguration() {
-  const hasGroq = !!(process.env.GROQ_API_KEY && process.env.GROQ_API_KEY.trim());
-  const hasOpenAI = !!(process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY.trim());
-
-  console.log('[STT][CONFIG] GROQ_API_KEY configured: ' + hasGroq);
-  console.log('[STT][CONFIG] OPENAI_API_KEY configured: ' + hasOpenAI);
-
-  if (hasGroq) {
-    console.log('[STT][CONFIG] Active Primary Provider: GROQ (whisper-large-v3)');
-  } else if (hasOpenAI) {
-    console.log('[STT][CONFIG] Active Primary Provider: OPENAI (whisper-1)');
-  } else {
-    console.log('[STT][CONFIG] No STT API keys configured in environment.');
-  }
+  console.log('[STT][CONFIG] Provider: Local faster-whisper (Python microservice)');
+  console.log('[STT][CONFIG] Service Endpoint: ' + PYTHON_STT_URL);
+  console.log('[STT][CONFIG] Model: ' + (process.env.WHISPER_MODEL || 'base'));
+  console.log('[STT][CONFIG] Device: ' + (process.env.WHISPER_DEVICE || 'cpu'));
+  console.log('[STT][CONFIG] Compute Type: ' + (process.env.WHISPER_COMPUTE_TYPE || 'int8'));
+  console.log('[STT][CONFIG] 100% Free & Local — Zero external API dependencies.');
 }
 
 async function transcribeAudioFile(filePath, originalFilename = 'speech.webm', mimeType = 'audio/webm') {
@@ -30,90 +25,60 @@ async function transcribeAudioFile(filePath, originalFilename = 'speech.webm', m
   const audioBlob = new Blob([fileBuffer], { type: mimeType || 'audio/webm' });
   const filename = originalFilename || 'speech_chunk.webm';
 
-  // 1. Primary Provider: Groq Whisper API (whisper-large-v3)
-  const groqKey = process.env.GROQ_API_KEY ? process.env.GROQ_API_KEY.trim() : null;
-  if (groqKey) {
-    try {
-      console.log('[VOICE][STT] Provider configured: GROQ');
-      console.log('[VOICE][STT] Uploading audio');
+  console.log('[VOICE][STT] Uploading audio to local faster-whisper service (' + PYTHON_STT_URL + ')');
 
-      const formData = new FormData();
-      formData.append('file', audioBlob, filename);
-      formData.append('model', 'whisper-large-v3');
-      formData.append('language', 'ar');
-      formData.append('prompt', 'لوحة سيارة عربية: دال ألف دال اثنين خمسة اثنين أربعة، ألف سين باء ٢١٧٥');
+  try {
+    const formData = new FormData();
+    formData.append('audio', audioBlob, filename);
 
-      const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
-        method: 'POST',
-        headers: {
-          'Authorization': 'Bearer ' + groqKey
-        },
-        body: formData
-      });
+    const response = await fetch(PYTHON_STT_URL, {
+      method: 'POST',
+      body: formData
+    });
 
-      if (response.ok) {
-        const data = await response.json();
-        if (data && data.text && data.text.trim()) {
-          console.log('[VOICE][STT] Response received');
-          console.log('[VOICE][STT] Transcript: "' + data.text.trim() + '"');
-          return { success: true, text: data.text.trim(), provider: 'GROQ' };
-        }
+    if (response.ok) {
+      const data = await response.json();
+      if (data && data.success && data.text) {
+        console.log('[VOICE][STT] Response received from faster-whisper');
+        console.log('[VOICE][STT] Transcript: "' + data.text.trim() + '"');
+        return {
+          success: true,
+          text: data.text.trim(),
+          provider: 'local-faster-whisper',
+          language: 'ar',
+          model: data.model || process.env.WHISPER_MODEL || 'base'
+        };
       } else {
-        const errText = await response.text();
-        console.warn('[STT][BACKEND] Groq API returned status:', response.status, errText);
+        console.warn('[STT][BACKEND] faster-whisper returned non-success:', data);
+        return {
+          success: false,
+          error: (data && data.error) || 'STT transcription failed',
+          code: (data && data.code) || 'STT_TRANSCRIPTION_FAILED'
+        };
       }
-    } catch (e) {
-      console.warn('[STT][BACKEND] Groq API call failed:', e.message);
+    } else {
+      const errText = await response.text();
+      console.warn('[STT][BACKEND] faster-whisper HTTP status:', response.status, errText);
+      return {
+        success: false,
+        error: 'faster-whisper service returned HTTP ' + response.status,
+        code: 'STT_HTTP_ERROR',
+        statusCode: response.status
+      };
     }
+  } catch (err) {
+    console.error('[STT][BACKEND] Connection to faster-whisper failed:', err.message);
+    return {
+      success: false,
+      error: 'تعذر الاتصال بخدمة faster-whisper المحلية على (' + PYTHON_STT_URL + '). يرجى التأكد من تشغيل stt_service.',
+      code: 'STT_SERVICE_UNAVAILABLE',
+      statusCode: 503
+    };
   }
-
-  // 2. Fallback Provider: OpenAI Whisper API (whisper-1)
-  const openaiKey = process.env.OPENAI_API_KEY ? process.env.OPENAI_API_KEY.trim() : null;
-  if (openaiKey) {
-    try {
-      console.log('[VOICE][STT] Provider configured: OPENAI (Fallback)');
-      console.log('[VOICE][STT] Uploading audio');
-
-      const formData = new FormData();
-      formData.append('file', audioBlob, filename);
-      formData.append('model', 'whisper-1');
-      formData.append('language', 'ar');
-      formData.append('prompt', 'لوحة سيارة عربية: دال ألف دال اثنين خمسة اثنين أربعة، ألف سين باء ٢١٧٥');
-
-      const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-        method: 'POST',
-        headers: {
-          'Authorization': 'Bearer ' + openaiKey
-        },
-        body: formData
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data && data.text && data.text.trim()) {
-          console.log('[VOICE][STT] Response received');
-          console.log('[VOICE][STT] Transcript: "' + data.text.trim() + '"');
-          return { success: true, text: data.text.trim(), provider: 'OPENAI' };
-        }
-      } else {
-        const errText = await response.text();
-        console.warn('[STT][BACKEND] OpenAI API returned status:', response.status, errText);
-      }
-    } catch (e) {
-      console.warn('[STT][BACKEND] OpenAI API call failed:', e.message);
-    }
-  }
-
-  // 3. If no STT keys configured
-  return {
-    success: false,
-    error: 'Speech-to-Text service is not configured',
-    code: 'STT_CONFIG_REQUIRED',
-    statusCode: 503
-  };
 }
 
 module.exports = {
   transcribeAudioFile,
-  logSttConfiguration
+  logSttConfiguration,
+  PYTHON_STT_URL
 };
