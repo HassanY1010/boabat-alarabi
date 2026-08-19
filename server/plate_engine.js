@@ -147,24 +147,14 @@ function tokenizeArabicSpeech(rawText) {
 
     // Check if pure digit string (e.g. "2753", "2", "27")
     if (/^\d+$/.test(raw)) {
-      if (raw.length >= 3 && raw.length <= 4) {
-        tokens.push({ type: 'DIGIT_STRING', value: raw, raw });
-      } else {
-        for (const d of raw) {
-          tokens.push({ type: 'DIGIT', value: d, raw: d, numVal: parseInt(d, 10) });
-        }
+      for (const d of raw) {
+        tokens.push({ type: 'DIGIT', value: d, raw: d, numVal: parseInt(d, 10) });
       }
       continue;
     }
 
-    // Check for compound numbers (e.g. "ألفين", "سبعمية", "عشرين")
     const withoutWa = raw.replace(/^و/, '');
     const normWithoutWa = norm.replace(/^و/, '');
-    if (raw in COMPOUND_NUMBER_VALUES || withoutWa in COMPOUND_NUMBER_VALUES || norm in COMPOUND_NUMBER_VALUES || normWithoutWa in COMPOUND_NUMBER_VALUES) {
-      const val = COMPOUND_NUMBER_VALUES[raw] || COMPOUND_NUMBER_VALUES[withoutWa] || COMPOUND_NUMBER_VALUES[norm] || COMPOUND_NUMBER_VALUES[normWithoutWa];
-      tokens.push({ type: 'COMPOUND_NUMBER', value: val, raw });
-      continue;
-    }
 
     // Check single digit words ("واحد", "اتنين", "تلاتة")
     if (raw in SINGLE_DIGIT_WORDS || norm in SINGLE_DIGIT_WORDS || withoutWa in SINGLE_DIGIT_WORDS || normWithoutWa in SINGLE_DIGIT_WORDS) {
@@ -200,43 +190,38 @@ function parsePlateTranscript(rawText, options = {}) {
   const candidates = [];
 
   let letters = [];
-  let digits = '';
-  let compoundSum = 0;
-  let hasCompound = false;
+  let digits = [];
 
   function flushPlate() {
-    let finalNumber = digits;
-    if (hasCompound && compoundSum > 0 && compoundSum <= 9999) {
-      finalNumber = compoundSum.toString();
-    }
-
-    if (letters.length >= 2 && letters.length <= 4 && finalNumber.length >= 1 && finalNumber.length <= 4) {
+    if (letters.length >= 2 && letters.length <= 4 && digits.length >= 1 && digits.length <= 4) {
       const finalLetters = letters.slice(0, 3);
       const lettersDisplay = finalLetters.join(' ');
       const lettersCanonical = finalLetters.join('');
-      const canonical = `${lettersCanonical}${finalNumber}`;
+      const digitsDisplay = digits.join(' ');
+      const digitsCanonical = digits.join('');
+      const canonical = `${lettersCanonical}${digitsCanonical}`;
 
       candidates.push({
         letters: lettersDisplay,
         lettersCanonical,
-        numbers: finalNumber,
+        numbers: digitsDisplay,
+        digitsList: [...digits],
+        numbersCanonical: digitsCanonical,
         canonicalPlate: canonical,
-        plateDisplay: `${lettersDisplay} ${finalNumber}`,
+        plateDisplay: `${lettersDisplay} ${digitsDisplay}`,
         confidence: 0.98
       });
     }
 
     letters = [];
-    digits = '';
-    compoundSum = 0;
-    hasCompound = false;
+    digits = [];
   }
 
   for (let i = 0; i < tokens.length; i++) {
     const tok = tokens[i];
 
     if (tok.type === 'LETTER') {
-      if (digits.length >= 1 || hasCompound) {
+      if (digits.length >= 1) {
         flushPlate();
       }
       if (letters.length < 4) {
@@ -244,24 +229,10 @@ function parsePlateTranscript(rawText, options = {}) {
       }
     } else if (tok.type === 'DIGIT') {
       if (letters.length >= 2) {
-        if (hasCompound) {
-          compoundSum += tok.numVal;
-        } else {
-          digits += tok.value;
-          if (digits.length === 4) {
-            flushPlate();
-          }
+        digits.push(tok.value);
+        if (digits.length === 4 || (digits.length >= 3 && (i === tokens.length - 1 || tokens[i+1]?.type === 'LETTER'))) {
+          flushPlate();
         }
-      }
-    } else if (tok.type === 'DIGIT_STRING') {
-      if (letters.length >= 2) {
-        digits += tok.value;
-        flushPlate();
-      }
-    } else if (tok.type === 'COMPOUND_NUMBER') {
-      if (letters.length >= 2) {
-        hasCompound = true;
-        compoundSum += tok.value;
       }
     }
   }

@@ -466,11 +466,15 @@ class AppController {
         statusIcon = `<div class="status-badge-icon cleared" title="سليمة ✔"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg></div>`;
       }
 
+      // Format separate discrete slots (e.g. د | ا | د and 2 | 5 | 2 | 4)
+      const lettersFormatted = (scan.letters || '').split(/\s+/).filter(Boolean).join(' | ') || '-';
+      const digitsFormatted = (scan.numbers || '').toString().split('').filter(ch => /\d/.test(ch)).join(' | ') || '-';
+
       html += `
         <div class="${rowClass}" onclick="app.showScanDetails('${scan.id}')">
           <span class="row-num">${rowNum}</span>
-          <span class="row-letters">${scan.letters || '-'}</span>
-          <span class="row-digits">${scan.numbers || '-'}</span>
+          <span class="row-letters">${lettersFormatted}</span>
+          <span class="row-digits">${digitsFormatted}</span>
           <div class="status-icon-cell">${statusIcon}</div>
         </div>
       `;

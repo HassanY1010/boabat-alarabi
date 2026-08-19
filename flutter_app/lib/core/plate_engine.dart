@@ -109,36 +109,30 @@ class FlutterPlateEngine {
     final words = clean.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
     final candidates = <PlateCandidate>[];
 
-    List<String> letters = [];
-    String digits = '';
-    int compoundSum = 0;
-    bool hasCompound = false;
+    final List<String> letters = [];
+    final List<String> digits = [];
 
     void flush() {
-      String finalNum = digits;
-      if (hasCompound && compoundSum > 0 && compoundSum <= 9999) {
-        finalNum = compoundSum.toString();
-      }
-
-      if (letters.length >= 2 && letters.length <= 4 && finalNum.isNotEmpty && finalNum.length <= 4) {
+      if (letters.length >= 2 && letters.length <= 4 && digits.length >= 1 && digits.length <= 4) {
         final finalLetters = letters.take(3).toList();
-        final displayLetters = finalLetters.join(' ');
-        final canonicalLetters = finalLetters.join('');
-        final canonical = '$canonicalLetters$finalNum';
+        final lettersDisplay = finalLetters.join(' ');
+        final lettersCanonical = finalLetters.join('');
+        final digitsDisplay = digits.join(' ');
+        final digitsCanonical = digits.join('');
+        final canonical = '$lettersCanonical$digitsCanonical';
 
         candidates.add(PlateCandidate(
-          letters: displayLetters,
-          numbers: finalNum,
+          letters: lettersDisplay,
+          lettersCanonical: lettersCanonical,
+          numbers: digitsDisplay,
           canonicalPlate: canonical,
-          plateDisplay: '$displayLetters $finalNum',
+          plateDisplay: '$lettersDisplay $digitsDisplay',
           confidence: 0.98,
         ));
       }
 
-      letters = [];
-      digits = '';
-      compoundSum = 0;
-      hasCompound = false;
+      letters.clear();
+      digits.clear();
     }
 
     for (final raw in words) {
@@ -146,21 +140,10 @@ class FlutterPlateEngine {
       if (noiseWords.contains(raw) || noiseWords.contains(norm)) continue;
 
       if (RegExp(r'^\d+$').hasMatch(raw)) {
-        if (raw.length >= 3 && raw.length <= 4) {
+        for (final ch in raw.split('')) {
           if (letters.length >= 2) {
-            digits += raw;
-            flush();
-          }
-        } else {
-          for (final ch in raw.split('')) {
-            if (letters.length >= 2) {
-              if (hasCompound) {
-                compoundSum += int.tryParse(ch) ?? 0;
-              } else {
-                digits += ch;
-                if (digits.length == 4) flush();
-              }
-            }
+            digits.add(ch);
+            if (digits.length == 4) flush();
           }
         }
         continue;
@@ -169,24 +152,11 @@ class FlutterPlateEngine {
       final withoutWa = raw.startsWith('و') ? raw.substring(1) : raw;
       final normWithoutWa = norm.startsWith('و') ? norm.substring(1) : norm;
 
-      if (compoundNumbers.containsKey(raw) || compoundNumbers.containsKey(withoutWa) || compoundNumbers.containsKey(norm) || compoundNumbers.containsKey(normWithoutWa)) {
-        final val = compoundNumbers[raw] ?? compoundNumbers[withoutWa] ?? compoundNumbers[norm] ?? compoundNumbers[normWithoutWa]!;
-        if (letters.length >= 2) {
-          hasCompound = true;
-          compoundSum += val;
-        }
-        continue;
-      }
-
       if (singleDigits.containsKey(raw) || singleDigits.containsKey(norm) || singleDigits.containsKey(withoutWa) || singleDigits.containsKey(normWithoutWa)) {
         final d = singleDigits[raw] ?? singleDigits[norm] ?? singleDigits[withoutWa] ?? singleDigits[normWithoutWa]!;
         if (letters.length >= 2) {
-          if (hasCompound) {
-            compoundSum += d;
-          } else {
-            digits += d.toString();
-            if (digits.length == 4) flush();
-          }
+          digits.add(d.toString());
+          if (digits.length == 4) flush();
         }
         continue;
       }

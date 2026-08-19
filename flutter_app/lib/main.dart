@@ -995,7 +995,7 @@ class _ScanMainScreenState extends State<ScanMainScreen> {
                                 final isWanted = item['wanted'] == true;
 
                                 return Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                                   color: isWanted ? const Color(0x15FF4757) : Colors.transparent,
                                   child: Row(
                                     children: [
@@ -1013,26 +1013,26 @@ class _ScanMainScreenState extends State<ScanMainScreen> {
                                         ),
                                       ),
 
-                                      // 2. Column الحروف: e.g. "ر ب ط", "ك م ل", "ن ع د", "ي و س"
+                                      // 2. Column الحروف: e.g. "د | ا | د"
                                       Expanded(
                                         flex: 3,
                                         child: Text(
-                                          item['letters'] ?? '',
+                                          (item['letters'] ?? '').toString().split(RegExp(r'\s+')).where((s) => s.isNotEmpty).join(' | '),
                                           style: const TextStyle(
                                             color: Colors.white,
-                                            fontSize: 18,
+                                            fontSize: 16,
                                             fontWeight: FontWeight.bold,
-                                            letterSpacing: 2,
+                                            letterSpacing: 1,
                                           ),
                                           textAlign: TextAlign.center,
                                         ),
                                       ),
 
-                                      // 3. Column الأرقام: e.g. "5758", "2727", "7747", "6262"
+                                      // 3. Column الأرقام: e.g. "2 | 5 | 2 | 4"
                                       Expanded(
                                         flex: 3,
                                         child: Text(
-                                          item['numbers'] ?? '',
+                                          (item['numbers'] ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '').split('').join(' | '),
                                           style: const TextStyle(
                                             color: Color(0xFF2BF0C4),
                                             fontSize: 18,

@@ -105,23 +105,14 @@ function clientParsePlateTranscript(rawText) {
     }
 
     if (/^\d+$/.test(raw)) {
-      if (raw.length >= 3 && raw.length <= 4) {
-        tokens.push({ type: 'DIGIT_STRING', value: raw });
-      } else {
-        for (const d of raw) {
-          tokens.push({ type: 'DIGIT', value: d, numVal: parseInt(d, 10) });
-        }
+      for (const d of raw) {
+        tokens.push({ type: 'DIGIT', value: d, numVal: parseInt(d, 10) });
       }
       continue;
     }
 
     const withoutWa = raw.replace(/^و/, '');
     const normWithoutWa = norm.replace(/^و/, '');
-    if (raw in CLIENT_COMPOUND_NUMBERS || withoutWa in CLIENT_COMPOUND_NUMBERS || norm in CLIENT_COMPOUND_NUMBERS || normWithoutWa in CLIENT_COMPOUND_NUMBERS) {
-      const val = CLIENT_COMPOUND_NUMBERS[raw] || CLIENT_COMPOUND_NUMBERS[withoutWa] || CLIENT_COMPOUND_NUMBERS[norm] || CLIENT_COMPOUND_NUMBERS[normWithoutWa];
-      tokens.push({ type: 'COMPOUND_NUMBER', value: val });
-      continue;
-    }
 
     if (raw in CLIENT_SINGLE_DIGITS || norm in CLIENT_SINGLE_DIGITS || withoutWa in CLIENT_SINGLE_DIGITS || normWithoutWa in CLIENT_SINGLE_DIGITS) {
       const d = CLIENT_SINGLE_DIGITS[raw] !== undefined ? CLIENT_SINGLE_DIGITS[raw] :
@@ -148,65 +139,44 @@ function clientParsePlateTranscript(rawText) {
 
   const candidates = [];
   let letters = [];
-  let digits = '';
-  let compoundSum = 0;
-  let hasCompound = false;
+  let digits = [];
 
   function flush() {
-    let finalNumber = digits;
-    if (hasCompound && compoundSum > 0 && compoundSum <= 9999) {
-      finalNumber = compoundSum.toString();
-    }
-
-    if (letters.length >= 2 && letters.length <= 4 && finalNumber.length >= 1 && finalNumber.length <= 4) {
+    if (letters.length >= 2 && letters.length <= 4 && digits.length >= 1 && digits.length <= 4) {
       const finalLetters = letters.slice(0, 3);
       const lettersDisplay = finalLetters.join(' ');
       const lettersCanonical = finalLetters.join('');
-      const canonical = `${lettersCanonical}${finalNumber}`;
+      const digitsDisplay = digits.join(' ');
+      const digitsCanonical = digits.join('');
+      const canonical = `${lettersCanonical}${digitsCanonical}`;
 
       candidates.push({
         letters: lettersDisplay,
         lettersCanonical,
-        numbers: finalNumber,
+        numbers: digitsDisplay,
+        digitsList: [...digits],
+        numbersCanonical: digitsCanonical,
         canonicalPlate: canonical,
-        plateDisplay: `${lettersDisplay} ${finalNumber}`,
+        plateDisplay: `${lettersDisplay} ${digitsDisplay}`,
         confidence: 0.98
       });
     }
 
     letters = [];
-    digits = '';
-    compoundSum = 0;
-    hasCompound = false;
+    digits = [];
   }
 
   for (let i = 0; i < tokens.length; i++) {
     const tok = tokens[i];
     if (tok.type === 'LETTER') {
-      if (digits.length >= 1 || hasCompound) flush();
+      if (digits.length >= 1) flush();
       if (letters.length < 4) letters.push(tok.value);
     } else if (tok.type === 'DIGIT') {
       if (letters.length >= 2) {
-        if (hasCompound) {
-          compoundSum += tok.numVal;
-        } else {
-          digits += tok.value;
-          if (digits.length >= 3 && (i === tokens.length - 1 || tokens[i+1]?.type === 'LETTER')) {
-            flush();
-          } else if (digits.length === 4) {
-            flush();
-          }
+        digits.push(tok.value);
+        if (digits.length === 4 || (digits.length >= 3 && (i === tokens.length - 1 || tokens[i+1]?.type === 'LETTER'))) {
+          flush();
         }
-      }
-    } else if (tok.type === 'DIGIT_STRING') {
-      if (letters.length >= 2) {
-        digits += tok.value;
-        flush();
-      }
-    } else if (tok.type === 'COMPOUND_NUMBER') {
-      if (letters.length >= 2) {
-        hasCompound = true;
-        compoundSum += tok.value;
       }
     }
   }
