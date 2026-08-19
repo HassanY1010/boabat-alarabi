@@ -1,15 +1,8 @@
 /**
- * Boabat Al-Arabi - Enterprise Deterministic Voice State Machine
+ * Boabat Al-Arabi - High-Speed Enterprise Voice State Machine (Sub-Second Voice-to-Table Pipeline)
  * 
- * Strict State Machine Flow:
- * IDLE -> LISTENING -> RECORDING -> STOPPING -> TRANSCRIBING -> PROCESSING -> LISTENING
- * 
- * Rules:
- * 1. MediaRecorder starts ONLY when speech is detected (hasSpeech = true).
- * 2. If silence occurs without speech: No recording is created, no STT called.
- * 3. Exact one recorder.stop() per utterance.
- * 4. Next listening cycle starts ONLY after complete STT + DB Wanted check + Table update.
- * 5. Session remains strictly active (LISTENING <-> RECORDING) until explicit user stop.
+ * Optimized Flow:
+ * Speech End -> Fast VAD (~320ms) -> Recorder Stop -> Standalone Blob -> STT Fetch -> Fast Tokenizer -> Instant Optimistic Table Insert -> Background DB Verification
  */
 
 class AudioEngine {
@@ -36,16 +29,26 @@ class AudioEngine {
     this.cycleChunks = [];
     this.actualMime = 'audio/webm';
 
-    // VAD Configuration
-    this.SILENCE_TIMEOUT_MS = 900; // Silence duration to finalize utterance
-    this.MIN_SPEECH_DURATION_MS = 500; // Minimum speech duration
-    this.MAX_RECORDING_DURATION_MS = 6000; // Max duration safety limit per utterance
+    // High-Performance VAD Tuning (Sub-second response)
+    this.SILENCE_TIMEOUT_MS = 320; // 320ms fast silence cutoff
+    this.MIN_SPEECH_DURATION_MS = 350; // 350ms minimum speech
+    this.MAX_RECORDING_DURATION_MS = 5500; // Safety maximum duration per utterance
     this.SPEECH_THRESHOLD = 0.016; // Audio energy RMS threshold
 
     this.speechStartTime = 0;
     this.silenceStartTime = 0;
     this.vadInterval = null;
     this.maxDurationTimer = null;
+
+    // Performance Metrics Timing Object
+    this.perfMetrics = {
+      tSpeechEnd: 0,
+      tRecorderStop: 0,
+      tBlobReady: 0,
+      tFetchStart: 0,
+      tFetchResponse: 0,
+      tTranscriptReady: 0
+    };
 
     // UI Elements
     this.canvas = document.getElementById('audioVisualizerCanvas');
@@ -133,13 +136,13 @@ class AudioEngine {
       const source = this.audioCtx.createMediaStreamSource(this.mediaStream);
       this.analyser = this.audioCtx.createAnalyser();
       this.analyser.fftSize = 512;
-      this.analyser.smoothingTimeConstant = 0.3;
+      this.analyser.smoothingTimeConstant = 0.2;
       source.connect(this.analyser);
     } catch (e) {
       console.warn('[VOICE][WARN] AudioContext initialization failed:', e);
     }
 
-    // 3. Start VAD monitoring loop
+    // 3. Start VAD monitoring loop (tight 40ms interval for immediate speech/silence detection)
     this.startVadMonitoring(currentSession);
   }
 
@@ -193,12 +196,14 @@ class AudioEngine {
             const speechDuration = now - this.speechStartTime;
             if (speechDuration >= this.MIN_SPEECH_DURATION_MS) {
               console.log('[VOICE][SILENCE] Silence detected');
+              this.perfMetrics.tSpeechEnd = performance.now();
+              console.log('[PERF] speech_end');
               this.stopUtteranceRecording(sessionToken, 'silence');
             }
           }
         }
       }
-    }, 60);
+    }, 40);
   }
 
   beginUtteranceRecording(sessionToken) {
@@ -226,6 +231,8 @@ class AudioEngine {
     };
 
     recorder.onstop = async () => {
+      this.perfMetrics.tRecorderStop = performance.now();
+      console.log('[PERF] recorder_stop');
       console.log('[VOICE][RECORDER] Recording stopped');
       this.isRecording = false;
 
@@ -247,9 +254,11 @@ class AudioEngine {
       }
 
       const completeAudioBlob = new Blob(this.cycleChunks, { type: this.actualMime });
+      this.perfMetrics.tBlobReady = performance.now();
+      console.log('[PERF] blob_ready');
       console.log('[VOICE][AUDIO] Complete blob created (' + completeAudioBlob.size + ' bytes)');
 
-      if (completeAudioBlob.size < 1500) {
+      if (completeAudioBlob.size < 1200) {
         console.log('[VOICE][RECORDER] Discarding silent recording');
         this.resetToListeningState(sessionToken);
         return;
@@ -279,6 +288,10 @@ class AudioEngine {
     this.maxDurationTimer = setTimeout(() => {
       if (this.state === 'RECORDING' && this.sessionToken === sessionToken) {
         console.log('[VOICE][SILENCE] Maximum recording duration reached');
+        if (!this.perfMetrics.tSpeechEnd) {
+          this.perfMetrics.tSpeechEnd = performance.now();
+          console.log('[PERF] speech_end');
+        }
         this.stopUtteranceRecording(sessionToken, 'max_duration');
       }
     }, this.MAX_RECORDING_DURATION_MS);
@@ -337,6 +350,8 @@ class AudioEngine {
     }, 60000);
 
     try {
+      this.perfMetrics.tFetchStart = performance.now();
+      console.log('[PERF] fetch_start');
       console.log('[VOICE][STT] Fetch started');
       const res = await fetch('/api/v1/speech/transcribe', {
         method: 'POST',
@@ -345,6 +360,8 @@ class AudioEngine {
       });
       clearTimeout(timeoutId);
 
+      this.perfMetrics.tFetchResponse = performance.now();
+      console.log('[PERF] fetch_response');
       console.log('[VOICE][STT] HTTP response received status=' + res.status);
       console.log('[VOICE][STT] response.ok=' + res.ok);
 
@@ -362,7 +379,12 @@ class AudioEngine {
 
       if (data.success && typeof data.text === 'string' && data.text.trim().length > 0) {
         const recognizedTranscript = data.text.trim();
+        this.perfMetrics.tTranscriptReady = performance.now();
+        console.log('[PERF] transcript_ready');
         console.log('[VOICE][STT] Transcript received: "' + recognizedTranscript + '"');
+
+        const sttDurationMs = Math.round(this.perfMetrics.tTranscriptReady - this.perfMetrics.tFetchStart);
+        console.log('[PERF][STT] ' + sttDurationMs + ' ms');
 
         this.transitionState('PROCESSING');
         console.log('[VOICE][PIPELINE] Calling processSpokenText()');
@@ -372,7 +394,7 @@ class AudioEngine {
           this.onTranscriptUpdate(recognizedTranscript);
         }
         if (this.onSpokenText) {
-          await this.onSpokenText(recognizedTranscript);
+          await this.onSpokenText(recognizedTranscript, { perfMetrics: this.perfMetrics });
         }
         console.log('[VOICE][PIPELINE] processSpokenText() completed');
       } else {

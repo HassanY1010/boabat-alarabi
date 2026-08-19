@@ -324,7 +324,7 @@ class AppController {
     }
   }
 
-  async handlePlateCandidateDetected(candidate, rawTranscript) {
+  async handlePlateCandidateDetected(candidate, rawTranscript, metadata = {}) {
     const now = Date.now();
     const lastSeen = this.lastProcessedPlates.get(candidate.canonicalPlate);
 
@@ -342,6 +342,8 @@ class AppController {
     console.log('[VOICE][PLATE] Created:', candidate.canonicalPlate);
 
     const tempScanId = 'scan-temp-' + now;
+    const tTableStart = typeof performance !== 'undefined' ? performance.now() : Date.now();
+
     // 1. Optimistic Instant UI Insert (Zero Latency)
     const instantScan = {
       id: tempScanId,
@@ -361,7 +363,19 @@ class AppController {
       capturedAt: new Date().toISOString()
     };
     this.addScanToUI(instantScan);
+    const tTableEnd = typeof performance !== 'undefined' ? performance.now() : Date.now();
+
+    console.log('[PERF] table_row_created');
     console.log('[VOICE][TABLE] Row created');
+
+    const tableDurationMs = Math.round(tTableEnd - tTableStart);
+    console.log('[PERF][TABLE] ' + tableDurationMs + ' ms');
+
+    if (metadata && metadata.perfMetrics && metadata.perfMetrics.tSpeechEnd) {
+      const totalVoiceToTableMs = Math.round(tTableEnd - metadata.perfMetrics.tSpeechEnd);
+      console.log('[PERF][VOICE_TO_TABLE] ' + totalVoiceToTableMs + ' ms');
+    }
+
     console.log('[VOICE][CHECK] Wanted check started:', candidate.canonicalPlate);
 
     // 2. Perform Verification with Backend in Background
@@ -407,21 +421,28 @@ class AppController {
     }
   }
 
-  async processSpokenText(phrase, chunk = null) {
+  async processSpokenText(phrase, options = {}) {
     if (!phrase) return;
     this.updateLiveTranscript(phrase);
+
+    const tParserStart = typeof performance !== 'undefined' ? performance.now() : Date.now();
 
     // 1. Parse active phrase
     let candidates = window.clientPlateParser.parsePlateTranscript(phrase);
 
     // 2. Fallback: Parse latest chunk if phrase had prior noise
-    if (candidates.length === 0 && chunk && chunk !== phrase) {
-      candidates = window.clientPlateParser.parsePlateTranscript(chunk);
+    if (candidates.length === 0 && options.chunk && options.chunk !== phrase) {
+      candidates = window.clientPlateParser.parsePlateTranscript(options.chunk);
     }
+
+    const tParserEnd = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    console.log('[PERF] parser_done');
+    const parserDurationMs = Math.round(tParserEnd - tParserStart);
+    console.log('[PERF][PARSER] ' + parserDurationMs + ' ms');
 
     if (candidates.length > 0) {
       for (const c of candidates) {
-        await this.handlePlateCandidateDetected(c, phrase);
+        await this.handlePlateCandidateDetected(c, phrase, options);
       }
     } else {
       console.log('[VOICE][PLATE] No complete plate detected');

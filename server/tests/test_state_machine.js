@@ -63,6 +63,7 @@ async function runTests() {
       () => {}
     );
     engine.isListening = true;
+    engine.sessionActive = true;
     engine.sessionToken = 1;
     engine.mediaStream = { getTracks: () => [] };
     engine.state = 'LISTENING';
@@ -93,6 +94,7 @@ async function runTests() {
 
     const engine = new AudioEngine(() => {}, () => {}, () => {});
     engine.isListening = true;
+    engine.sessionActive = true;
     engine.sessionToken = 2;
     engine.mediaStream = { getTracks: () => [] };
     engine.state = 'RECORDING';
@@ -131,6 +133,7 @@ async function runTests() {
       () => {}
     );
     engine.isListening = true;
+    engine.sessionActive = true;
     engine.sessionToken = 3;
     engine.mediaStream = { getTracks: () => [] };
     engine.hasSpeech = true;
