@@ -172,7 +172,7 @@ class AppController {
 
     // Initialize Audio Engine with unified processSpokenText pipeline
     this.audioEngine = new window.AudioEngine(
-      (activeText, latestChunk, isFinal) => this.processSpokenText(activeText, latestChunk),
+      (text) => this.processSpokenText(text),
       (transcript) => this.updateLiveTranscript(transcript)
     );
   }
@@ -337,9 +337,9 @@ class AppController {
     const lettersArray = (candidate.letters || '').split(/\s+/).filter(Boolean);
     const digitsArray = (candidate.digitsList && candidate.digitsList.length) ? candidate.digitsList : (candidate.numbers || '').toString().split('').filter(ch => /\d/.test(ch));
 
-    console.log('[VOICE] Parsed Letters:', lettersArray);
-    console.log('[VOICE] Parsed Digits:', digitsArray);
-    console.log('[VOICE] Plate Created:', candidate.canonicalPlate);
+    console.log('[VOICE][PLATE] Parsed Letters:', lettersArray);
+    console.log('[VOICE][PLATE] Parsed Digits:', digitsArray);
+    console.log('[VOICE][PLATE] Created:', candidate.canonicalPlate);
 
     const tempScanId = 'scan-temp-' + now;
     // 1. Optimistic Instant UI Insert (Zero Latency)
@@ -361,8 +361,8 @@ class AppController {
       capturedAt: new Date().toISOString()
     };
     this.addScanToUI(instantScan);
-    console.log('[VOICE] Table Record Created');
-    console.log('[VOICE] Wanted Check Started:', candidate.canonicalPlate);
+    console.log('[VOICE][TABLE] Row created');
+    console.log('[VOICE][CHECK] Wanted check started:', candidate.canonicalPlate);
 
     // 2. Perform Verification with Backend in Background
     const scanPayload = {
@@ -387,7 +387,7 @@ class AppController {
       });
       const recorded = await res.json();
       
-      console.log('[VOICE] Wanted Check Result:', recorded.wanted ? 'FOUND' : 'NOT_FOUND');
+      console.log('[VOICE][CHECK] Result:', recorded.wanted ? 'FOUND' : 'NOT_FOUND');
 
       // Update the optimistic item in place
       const idx = this.sessionScans.findIndex(s => s.id === tempScanId);
@@ -399,8 +399,8 @@ class AppController {
         }
         this.updateStatsUI();
         this.renderScanTable();
-        console.log('[VOICE] Table Row Updated');
-        console.log('[VOICE] Final Status:', recorded.wanted ? 'WANTED' : 'SAFE');
+        console.log('[VOICE][TABLE] Row updated');
+        console.log('[VOICE][FINAL]', recorded.wanted ? 'WANTED' : 'SAFE');
       }
     } catch (err) {
       console.warn('Network error saving scan, confirmed offline:', err);

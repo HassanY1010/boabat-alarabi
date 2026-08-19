@@ -1,319 +1,180 @@
-/**
- * Boabat Al-Arabi - Enterprise Real-Time Speech Recognition & Audio Engine
- * Features:
- * - Robust WebSpeechProvider with intelligent locale fallback (ar-EG -> ar-SA -> ar)
- * - Exponential backoff on network errors with strict maximum attempt threshold (no infinite loops)
- * - Hardware safety: AudioContext visualizer does NOT lock microphone from SpeechRecognition
- * - Full diagnostics: [VOICE][ENV], [VOICE][CONFIG], [VOICE][INTERIM], [VOICE][FINAL], [VOICE][RAW]
- * - Modular SpeechProvider architecture supporting future Cloud STT fallbacks
+﻿/**
+ * Boabat Al-Arabi - Real-Time MediaRecorder Audio Engine & STT Pipeline
+ * Architecture:
+ * Microphone -> MediaRecorder -> Audio Blob -> POST /api/v1/speech/transcribe
+ * -> Transcript -> app.processSpokenText() -> Plate Parser -> Table Record -> Wanted Check
  */
 
-class WebSpeechProvider {
-  constructor(options = {}) {
-    this.onSpokenText = options.onSpokenText || null;
-    this.onTranscriptUpdate = options.onTranscriptUpdate || null;
-    this.onError = options.onError || null;
-    this.onStatusChange = options.onStatusChange || null;
-
-    this.recognition = null;
-    this.isSessionActive = false;
-    this.isRecognitionRunning = false;
-    this.restartAttempts = 0;
-    this.maxRestartAttempts = 3;
-    this.restartTimer = null;
-    this.currentLangIndex = 0;
-    this.supportedLangs = ['ar-EG', 'ar-SA', 'ar']; // Egyptian Dialect priority with regional fallbacks
-
-    this.initProvider();
-  }
-
-  logEnvironment() {
-    const isChrome = /Chrome/.test(navigator.userAgent) && /Google Inc/.test(navigator.vendor);
-    const isEdge = /Edg/.test(navigator.userAgent);
-    const isSecure = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
-
-    console.log('[VOICE][ENV]', {
-      browser: isEdge ? 'Microsoft Edge' : (isChrome ? 'Google Chrome' : navigator.userAgent),
-      isSecureContext: window.isSecureContext,
-      protocol: location.protocol,
-      hostname: location.hostname,
-      online: navigator.onLine,
-      speechRecognitionSupported: !!(window.SpeechRecognition || window.webkitSpeechRecognition),
-      mediaDevicesSupported: !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)
-    });
-  }
-
-  initProvider() {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      console.warn('[VOICE] Web Speech API is not supported in this browser environment.');
-      return;
-    }
-
-    this.logEnvironment();
-    this.recognition = new SpeechRecognition();
-    this.recognition.continuous = true;
-    this.recognition.interimResults = true;
-    this.recognition.maxAlternatives = 1;
-
-    const chosenLang = document.getElementById('settingLanguage')?.value || this.supportedLangs[0];
-    this.recognition.lang = chosenLang;
-
-    this.recognition.onstart = () => {
-      this.isRecognitionRunning = true;
-      this.restartAttempts = 0;
-      console.log('[VOICE] onstart - SpeechRecognition active and listening');
-      if (this.onStatusChange) this.onStatusChange('LISTENING');
-    };
-
-    this.recognition.onaudiostart = () => {
-      console.log('[VOICE] onaudiostart - Audio capturing started');
-    };
-
-    this.recognition.onsoundstart = () => {
-      console.log('[VOICE] onsoundstart - Sound detected in microphone stream');
-    };
-
-    this.recognition.onspeechstart = () => {
-      console.log('[VOICE] onspeechstart - Speech detected');
-    };
-
-    this.recognition.onresult = (event) => {
-      console.log('[VOICE][RAW] onresult fired | resultIndex:', event.resultIndex, '| results.length:', event.results.length);
-
-      let interimTranscript = '';
-      let finalTranscript = '';
-      let latestChunk = '';
-
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
-        const item = event.results[i][0];
-        if (item && item.transcript) {
-          const text = item.transcript.trim();
-          if (event.results[i].isFinal) {
-            finalTranscript += ' ' + text;
-            console.log('[VOICE][FINAL] "' + text + '" | confidence:', item.confidence);
-          } else {
-            interimTranscript += ' ' + text;
-            console.log('[VOICE][INTERIM] "' + text + '"');
-          }
-          latestChunk = text;
-        }
-      }
-
-      const activeText = (finalTranscript || interimTranscript || latestChunk).trim();
-      const isFinal = event.results[event.results.length - 1]?.isFinal || false;
-
-      console.log(`[VOICE][RAW] Transcript: "${activeText}" | isFinal: ${isFinal} | latestChunk: "${latestChunk}"`);
-
-      if (activeText) {
-        if (this.onTranscriptUpdate) {
-          this.onTranscriptUpdate(activeText);
-        }
-        if (this.onSpokenText) {
-          this.onSpokenText(activeText, latestChunk, isFinal);
-        }
-      }
-    };
-
-    this.recognition.onspeechend = () => {
-      console.log('[VOICE] onspeechend - Speech chunk finalized');
-    };
-
-    this.recognition.onaudioend = () => {
-      console.log('[VOICE] onaudioend - Audio capture buffer ended');
-    };
-
-    this.recognition.onerror = (event) => {
-      this.isRecognitionRunning = false;
-      const err = event.error || 'unknown';
-      console.error('[VOICE][ERROR]', {
-        error: err,
-        message: event.message || '',
-        online: navigator.onLine,
-        lang: this.recognition.lang,
-        userAgent: navigator.userAgent
-      });
-
-      if (this.onError) {
-        this.onError(err, event);
-      }
-
-      if (!this.isSessionActive) return;
-
-      if (err === 'not-allowed' || err === 'service-not-allowed') {
-        alert('يرجى السماح بالوصول إلى الميكروفون في إعدادات المتصفح.');
-        this.stop();
-        return;
-      }
-
-      if (err === 'network') {
-        this.restartAttempts++;
-        if (this.restartAttempts <= this.maxRestartAttempts) {
-          // Switch to dialect fallback on network error (e.g. ar-EG -> ar-SA -> ar)
-          this.currentLangIndex = (this.currentLangIndex + 1) % this.supportedLangs.length;
-          const fallbackLang = this.supportedLangs[this.currentLangIndex];
-          console.warn(`[VOICE] Network error detected. Trying fallback dialect (${fallbackLang}) in ${this.restartAttempts * 1.5}s (Attempt ${this.restartAttempts}/${this.maxRestartAttempts})...`);
-          
-          const delay = Math.pow(2, this.restartAttempts - 1) * 1000;
-          this.scheduleRestart(delay, fallbackLang);
-        } else {
-          console.error('[VOICE] Maximum network retry attempts reached. Halting automatic restarts.');
-          if (this.onStatusChange) {
-            this.onStatusChange('NETWORK_ERROR', 'تعذر الاتصال بخدمة التعرف على الصوت السحابية. تحقق من اتصال الإنترنت أو استخدم متصفح Google Chrome.');
-          }
-          this.stop();
-        }
-        return;
-      }
-
-      if (err === 'no-speech') {
-        // Natural silence - keep listening seamlessly
-        this.scheduleRestart(100);
-        return;
-      }
-
-      if (err !== 'aborted') {
-        this.scheduleRestart(500);
-      }
-    };
-
-    this.recognition.onend = () => {
-      this.isRecognitionRunning = false;
-      console.log('[VOICE] onend - Speech recognition stopped');
-      if (this.isSessionActive) {
-        this.scheduleRestart(150);
-      }
-    };
-  }
-
-  scheduleRestart(delayMs = 200, overrideLang = null) {
-    if (!this.isSessionActive) return;
-    if (this.restartTimer) clearTimeout(this.restartTimer);
-
-    this.restartTimer = setTimeout(() => {
-      if (this.isSessionActive && !this.isRecognitionRunning) {
-        try {
-          if (overrideLang && this.recognition) {
-            this.recognition.lang = overrideLang;
-          }
-          console.log('[VOICE] Restarting SpeechRecognition with lang:', this.recognition.lang);
-          this.recognition.start();
-        } catch (e) {
-          console.warn('[VOICE] Recognition start attempt:', e.message);
-        }
-      }
-    }, delayMs);
-  }
-
-  start() {
-    this.isSessionActive = true;
-    this.restartAttempts = 0;
-    this.currentLangIndex = 0;
-
-    const userSelectedLang = document.getElementById('settingLanguage')?.value || 'ar-EG';
-    if (this.recognition) {
-      this.recognition.lang = userSelectedLang;
-
-      console.log('[VOICE][CONFIG]', {
-        lang: this.recognition.lang,
-        continuous: this.recognition.continuous,
-        interimResults: this.recognition.interimResults,
-        maxAlternatives: this.recognition.maxAlternatives,
-        userAgent: navigator.userAgent,
-        online: navigator.onLine,
-        protocol: location.protocol,
-        hostname: location.hostname
-      });
-
-      try {
-        this.recognition.start();
-      } catch (e) {
-        console.warn('[VOICE] Recognition already started or starting:', e.message);
-      }
-    }
-  }
-
-  stop() {
-    this.isSessionActive = false;
-    this.isRecognitionRunning = false;
-    if (this.restartTimer) {
-      clearTimeout(this.restartTimer);
-      this.restartTimer = null;
-    }
-    if (this.recognition) {
-      try { this.recognition.stop(); } catch (e) {}
-    }
-    if (this.onStatusChange) {
-      this.onStatusChange('STOPPED');
-    }
-  }
-}
-
-/**
- * Main AudioEngine controller coordinating Speech Providers & UI Visualizers
- */
 class AudioEngine {
-  constructor(onSpokenText, onTranscriptUpdate) {
-    this.onSpokenText = onSpokenText;
+  constructor(onSpokenText, onTranscriptUpdate, onStatusChange) {
+    this.onSpokenText = onSpokenText; // Central pipeline callback: app.processSpokenText
     this.onTranscriptUpdate = onTranscriptUpdate;
+    this.onStatusChange = onStatusChange;
 
     this.isListening = false;
+    this.mediaStream = null;
+    this.mediaRecorder = null;
+    this.audioChunks = [];
+    this.sliceTimer = null;
     this.animFrameId = null;
+    this.isUploading = false;
 
     this.canvas = document.getElementById('audioVisualizerCanvas');
     this.canvasCtx = this.canvas ? this.canvas.getContext('2d') : null;
     this.audioBadge = document.getElementById('audioLevelBadge');
-
-    // Initialize Provider
-    this.provider = new WebSpeechProvider({
-      onSpokenText: (text, chunk, isFinal) => {
-        if (this.onSpokenText) this.onSpokenText(text, chunk, isFinal);
-      },
-      onTranscriptUpdate: (text) => {
-        if (this.onTranscriptUpdate) this.onTranscriptUpdate(text);
-      },
-      onStatusChange: (status, message) => {
-        this.handleProviderStatus(status, message);
-      }
-    });
+    this.liveTranscript = document.getElementById('liveTranscript');
   }
 
-  handleProviderStatus(status, message) {
-    if (status === 'NETWORK_ERROR') {
-      const liveTranscript = document.getElementById('liveTranscript');
-      if (liveTranscript) {
-        liveTranscript.textContent = message || '⚠️ تعذر الاتصال بخدمة التعرف على الصوت. تحقق من اتصال الإنترنت.';
-        liveTranscript.style.color = '#FF4D6D';
-      }
-      this.stopListening();
-    } else if (status === 'LISTENING') {
-      const liveTranscript = document.getElementById('liveTranscript');
-      if (liveTranscript && liveTranscript.style.color === 'rgb(255, 77, 109)') {
-        liveTranscript.style.color = '';
-      }
+  updateStatus(stateText, isError = false) {
+    if (this.liveTranscript) {
+      this.liveTranscript.textContent = stateText;
+      this.liveTranscript.style.color = isError ? '#FF4D6D' : '';
+    }
+    if (this.onStatusChange) {
+      this.onStatusChange(stateText, isError);
     }
   }
 
   async startListening() {
     if (this.isListening) return;
     this.isListening = true;
-    console.log('[VOICE] Session Started');
-    console.log('[VOICE] Microphone Listening');
 
-    // Start Visualizer (Non-blocking simulated visualizer that leaves mic completely free for STT)
+    console.log('[VOICE][SESSION] Started');
+    this.updateStatus('🎙️ جاري التسجيل والاستماع... تفضل بنطق لوحة السيارة');
+
+    // 1. Request real microphone stream
+    try {
+      this.mediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
+    } catch (err) {
+      console.error('[VOICE][ERROR] Microphone permission failed:', err);
+      this.updateStatus('❌ تعذر الوصول إلى الميكروفون. يرجى منح الإذن في المتصفح.', true);
+      this.stopListening();
+      return;
+    }
+
+    console.log('[VOICE][RECORDER] Recording started');
+
+    // 2. Select optimal audio MIME type supported by browser
+    let mimeType = 'audio/webm;codecs=opus';
+    if (!MediaRecorder.isTypeSupported(mimeType)) {
+      if (MediaRecorder.isTypeSupported('audio/webm')) mimeType = 'audio/webm';
+      else if (MediaRecorder.isTypeSupported('audio/mp4')) mimeType = 'audio/mp4';
+      else mimeType = '';
+    }
+
+    try {
+      this.mediaRecorder = new MediaRecorder(this.mediaStream, mimeType ? { mimeType } : undefined);
+    } catch (e) {
+      this.mediaRecorder = new MediaRecorder(this.mediaStream);
+    }
+
+    this.audioChunks = [];
+
+    this.mediaRecorder.ondataavailable = (event) => {
+      if (event.data && event.data.size > 0) {
+        this.audioChunks.push(event.data);
+      }
+    };
+
+    this.mediaRecorder.onstop = () => {
+      if (this.audioChunks.length > 0) {
+        const currentMime = this.mediaRecorder.mimeType || 'audio/webm';
+        const audioBlob = new Blob(this.audioChunks, { type: currentMime });
+        this.audioChunks = [];
+        console.log([VOICE][RECORDER] Recording stopped ( bytes));
+
+        if (audioBlob.size > 1200) {
+          this.uploadAndTranscribe(audioBlob);
+        }
+      }
+    };
+
+    // 3. Start recording chunks continuously in cycles of ~3.2 seconds
+    this.mediaRecorder.start();
     this.startSimulatedVisualizer();
 
-    // Start Speech Recognition Provider
-    if (this.provider) {
-      this.provider.start();
+    this.sliceTimer = setInterval(() => {
+      if (this.isListening && this.mediaRecorder && this.mediaRecorder.state === 'recording') {
+        this.mediaRecorder.stop();
+        setTimeout(() => {
+          if (this.isListening && this.mediaRecorder && this.mediaRecorder.state === 'inactive') {
+            try {
+              this.mediaRecorder.start();
+            } catch (e) {}
+          }
+        }, 60);
+      }
+    }, 3200);
+  }
+
+  async uploadAndTranscribe(audioBlob) {
+    if (this.isUploading) return;
+    this.isUploading = true;
+
+    console.log('[VOICE][STT] Uploading audio');
+    this.updateStatus('⬆️ جاري إرسال الصوت وتحويله إلى نص...');
+
+    const formData = new FormData();
+    formData.append('audio', audioBlob, 'speech_chunk.webm');
+
+    try {
+      const res = await fetch('/api/v1/speech/transcribe', {
+        method: 'POST',
+        body: formData
+      });
+
+      const data = await res.json();
+      console.log('[VOICE][STT] Response received:', data);
+
+      if (data.success && data.text && data.text.trim().length > 0) {
+        const recognizedTranscript = data.text.trim();
+        console.log([VOICE][STT] Transcript: "");
+        console.log('[VOICE][PIPELINE] processSpokenText()');
+        this.updateStatus(🔎 جاري فحص اللوحة: "");
+
+        if (this.onTranscriptUpdate) {
+          this.onTranscriptUpdate(recognizedTranscript);
+        }
+        if (this.onSpokenText) {
+          this.onSpokenText(recognizedTranscript);
+        }
+      } else {
+        if (this.isListening) {
+          this.updateStatus('🎙️ يستمع الآن... تفضل بنطق لوحة السيارة بشكل طبيعي');
+        }
+      }
+    } catch (err) {
+      console.error('[VOICE][STT] Network / upload error:', err.message);
+      if (this.isListening) {
+        this.updateStatus('⚠️ تعذر تحويل الصوت إلى نص. يستمر الاستماع...');
+      }
+    } finally {
+      this.isUploading = false;
     }
   }
 
   stopListening() {
     this.isListening = false;
+    this.isUploading = false;
 
-    if (this.provider) {
-      this.provider.stop();
+    if (this.sliceTimer) {
+      clearInterval(this.sliceTimer);
+      this.sliceTimer = null;
+    }
+
+    if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+      try { this.mediaRecorder.stop(); } catch (e) {}
+    }
+
+    if (this.mediaStream) {
+      this.mediaStream.getTracks().forEach(track => track.stop());
+      this.mediaStream = null;
     }
 
     if (this.animFrameId) {
@@ -323,6 +184,7 @@ class AudioEngine {
 
     this.clearVisualizer();
     if (this.audioBadge) this.audioBadge.textContent = 'صامت';
+    this.updateStatus('تم إيقاف الجلسة الصوتية مؤقتًا');
   }
 
   startSimulatedVisualizer() {
@@ -356,5 +218,3 @@ class AudioEngine {
 }
 
 window.AudioEngine = AudioEngine;
-window.WebSpeechProvider = WebSpeechProvider;
-

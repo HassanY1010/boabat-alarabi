@@ -12,6 +12,7 @@ const { WebSocketServer, WebSocket } = require('ws');
 
 const db = require('./db');
 const { parsePlateTranscript, canonicalizePlate, normalizeArabicLetters } = require('./plate_engine');
+const { transcribeAudioFile } = require('./stt_engine');
 
 const app = express();
 const server = http.createServer(app);
@@ -137,6 +138,52 @@ app.post('/api/v1/plates/parse', (req, res) => {
     candidates: evaluated,
     processingTimeMs
   });
+});
+
+// 3.1. Speech-to-Text Transcription Endpoint (MediaRecorder / Server-Side Whisper STT)
+app.post('/api/v1/speech/transcribe', upload.single('audio'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({
+      success: false,
+      error: 'No audio file uploaded',
+      code: 'AUDIO_MISSING'
+    });
+  }
+
+  const uploadedPath = req.file.path;
+  const originalName = req.file.originalname || 'speech.webm';
+  const mimeType = req.file.mimetype || 'audio/webm';
+
+  try {
+    const result = await transcribeAudioFile(uploadedPath, originalName, mimeType);
+    
+    // Clean up temporary file
+    try { require('fs').unlinkSync(uploadedPath); } catch (e) {}
+
+    if (result.success) {
+      return res.json({
+        success: true,
+        text: result.text,
+        provider: result.provider || 'whisper'
+      });
+    } else {
+      return res.status(500).json({
+        success: false,
+        error: result.error,
+        code: result.code || 'STT_ERROR'
+      });
+    }
+  } catch (err) {
+    // Clean up temporary file
+    try { require('fs').unlinkSync(uploadedPath); } catch (e) {}
+    
+    console.error('[STT][ENDPOINT] Error processing audio:', err.message);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Internal error during speech transcription',
+      code: 'STT_EXCEPTION'
+    });
+  }
 });
 
 // 4. Check Plate Directly
