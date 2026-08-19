@@ -46,6 +46,22 @@ except Exception as e:
     else:
         raise e
 
+@app.get("/")
+def root():
+    return {
+        "service": "Boabat Al-Arabi - STT AI Engine",
+        "status": "ONLINE",
+        "provider": "local-faster-whisper",
+        "model": MODEL_NAME,
+        "device": DEVICE,
+        "compute_type": COMPUTE_TYPE,
+        "endpoints": {
+            "health": "GET /health",
+            "transcribe": "POST /transcribe",
+            "docs": "GET /docs"
+        }
+    }
+
 @app.get("/health")
 def health_check():
     return {
