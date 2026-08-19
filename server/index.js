@@ -12,7 +12,7 @@ const { WebSocketServer, WebSocket } = require('ws');
 
 const db = require('./db');
 const { parsePlateTranscript, canonicalizePlate, normalizeArabicLetters } = require('./plate_engine');
-const { transcribeAudioFile } = require('./stt_engine');
+const { transcribeAudioFile, logSttConfiguration } = require('./stt_engine');
 
 const app = express();
 const server = http.createServer(app);
@@ -167,7 +167,8 @@ app.post('/api/v1/speech/transcribe', upload.single('audio'), async (req, res) =
         provider: result.provider || 'whisper'
       });
     } else {
-      return res.status(500).json({
+      const statusCode = result.statusCode || (result.code === 'STT_CONFIG_REQUIRED' ? 503 : 500);
+      return res.status(statusCode).json({
         success: false,
         error: result.error,
         code: result.code || 'STT_ERROR'
@@ -427,6 +428,7 @@ app.get('*', (req, res) => {
 // Start Server
 server.listen(PORT, HOST, () => {
   console.log(`[Boabat Al-Arabi] Cloud Server running on http://${HOST}:${PORT}`);
+  logSttConfiguration();
 });
 
 module.exports = { app, server };
