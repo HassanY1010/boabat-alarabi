@@ -22,10 +22,10 @@ class AudioEngine {
     this.isProcessingSTT = false;
 
     // VAD Configuration
-    this.SILENCE_TIMEOUT_MS = 1100; // Time of silence before finalizing utterance
-    this.MIN_SPEECH_DURATION_MS = 600; // Minimum speech to consider valid utterance
-    this.MAX_RECORDING_DURATION_MS = 9000; // Safety maximum duration per utterance
-    this.SPEECH_THRESHOLD = 0.018; // Audio RMS energy threshold
+    this.SILENCE_TIMEOUT_MS = 900; // Time of silence before finalizing utterance
+    this.MIN_SPEECH_DURATION_MS = 500; // Minimum speech to consider valid utterance
+    this.MAX_RECORDING_DURATION_MS = 6000; // Safety maximum duration per utterance (6 seconds max)
+    this.SPEECH_THRESHOLD = 0.016; // Audio RMS energy threshold
 
     this.isSpeaking = false;
     this.speechStartTime = 0;

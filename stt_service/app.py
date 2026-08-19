@@ -1,4 +1,4 @@
-﻿import os
+import os
 import sys
 import time
 import tempfile
@@ -133,16 +133,19 @@ async def transcribe_audio(audio: UploadFile = File(None), file: UploadFile = Fi
         started = time.perf_counter()
         log_msg("[STT][TRANSCRIBE] Calling model.transcribe()")
 
-        # Execute transcription with fallback to in-memory buffer if file path fails
+        # Execute transcription with lightweight single-beam CPU configuration
         try:
             segments, info = model.transcribe(
                 temp_path,
                 language="ar",
                 initial_prompt="لوحة سيارة عربية: دال ألف دال اثنين خمسة اثنين أربعة، ألف سين باء ٢١٧٥",
-                beam_size=5,
+                beam_size=1,
+                best_of=1,
                 temperature=0.0,
-                vad_filter=False
+                vad_filter=False,
+                without_timestamps=True
             )
+            log_msg("[STT][SEGMENTS] Generator created")
         except Exception as file_err:
             log_msg(f"[STT][WARN] Direct file transcribe threw ({file_err}), trying in-memory buffer...")
             import io
@@ -150,13 +153,16 @@ async def transcribe_audio(audio: UploadFile = File(None), file: UploadFile = Fi
                 io.BytesIO(content),
                 language="ar",
                 initial_prompt="لوحة سيارة عربية: دال ألف دال اثنين خمسة اثنين أربعة، ألف سين باء ٢١٧٥",
-                beam_size=5,
+                beam_size=1,
+                best_of=1,
                 temperature=0.0,
-                vad_filter=False
+                vad_filter=False,
+                without_timestamps=True
             )
+            log_msg("[STT][SEGMENTS] Generator created (in-memory)")
 
         # Actively iterate and consume generator segments
-        log_msg("[STT][SEGMENTS] Iterating segments")
+        log_msg("[STT][SEGMENTS] Requesting first segment")
         text_segments = []
         for segment in segments:
             seg_text = segment.text.strip() if segment.text else ""
@@ -165,7 +171,7 @@ async def transcribe_audio(audio: UploadFile = File(None), file: UploadFile = Fi
                 text_segments.append(seg_text)
 
         log_msg("[STT][SEGMENTS] Iteration completed")
-        log_msg("[STT][TRANSCRIBE] model.transcribe() returned")
+        log_msg("[STT][TRANSCRIBE] Inference completed")
 
         elapsed_s = time.perf_counter() - started
         duration_ms = int(elapsed_s * 1000)
