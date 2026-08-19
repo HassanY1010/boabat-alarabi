@@ -40,10 +40,18 @@ async function transcribeAudioFile(filePath, originalFilename = 'speech.webm', m
     const formData = new FormData();
     formData.append('audio', audioBlob, filename);
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      console.warn('[VOICE][STT][TIMEOUT] faster-whisper request timed out after 60s');
+      controller.abort();
+    }, 60000);
+
     const response = await fetch(serviceUrl, {
       method: 'POST',
-      body: formData
+      body: formData,
+      signal: controller.signal
     });
+    clearTimeout(timeoutId);
 
     if (response.ok) {
       const data = await response.json();
@@ -77,6 +85,15 @@ async function transcribeAudioFile(filePath, originalFilename = 'speech.webm', m
       };
     }
   } catch (err) {
+    if (err.name === 'AbortError') {
+      console.error('[VOICE][STT][TIMEOUT] Request aborted due to timeout');
+      return {
+        success: false,
+        error: 'انتهت مهلة معالجة الصوت (60 ثانية).',
+        code: 'STT_TIMEOUT',
+        statusCode: 504
+      };
+    }
     console.error('[STT][BACKEND] Connection to faster-whisper failed:', err.message);
     return {
       success: false,

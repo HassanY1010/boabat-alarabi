@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Boabat Al-Arabi - Enterprise VAD-Powered MediaRecorder Audio Engine
  * Features:
  * - Real-Time AudioContext Voice Activity Detection (VAD)
@@ -163,7 +163,7 @@ class AudioEngine {
 
       if (cycleChunks.length === 0 || !hadValidSpeech) {
         // No speech detected in this cycle, seamlessly restart listening
-        if (this.isListening && this.sessionToken === sessionToken && !this.isProcessingSTT) {
+        if (this.isListening && this.sessionToken === sessionToken && !this.isTranscribing) {
           this.startRecordingCycle(sessionToken);
         }
         return;
@@ -174,10 +174,12 @@ class AudioEngine {
       console.log('[VOICE][AUDIO] Complete blob created (' + completeAudioBlob.size + ' bytes)');
 
       if (completeAudioBlob.size > 1500) {
+        this.isTranscribing = true;
         await this.uploadAndTranscribeBlob(completeAudioBlob, sessionToken);
+        this.isTranscribing = false;
       }
 
-      // Start next listening cycle if session is still active
+      // Start next listening cycle ONLY AFTER STT response completes
       if (this.isListening && this.sessionToken === sessionToken) {
         this.startRecordingCycle(sessionToken);
       }
@@ -224,6 +226,11 @@ class AudioEngine {
         }
         rms = Math.sqrt(sum / buffer.length);
         this.drawVisualizer(rms);
+      }
+
+      // During active STT request, VAD is paused
+      if (this.isTranscribing) {
+        return;
       }
 
       const now = Date.now();

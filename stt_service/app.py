@@ -106,7 +106,10 @@ async def transcribe_audio(audio: UploadFile = File(None), file: UploadFile = Fi
         }
 
     try:
-        print("[STT][TRANSCRIBE] Starting transcription")
+        import time
+        start_time = time.time()
+        print("[STT][TRANSCRIBE] Calling model.transcribe()")
+
         try:
             segments, info = model.transcribe(
                 temp_path,
@@ -114,9 +117,9 @@ async def transcribe_audio(audio: UploadFile = File(None), file: UploadFile = Fi
                 initial_prompt="لوحة سيارة عربية: دال ألف دال اثنين خمسة اثنين أربعة، ألف سين باء ٢١٧٥",
                 beam_size=5,
                 temperature=0.0,
-                vad_filter=True,
-                vad_parameters=dict(min_silence_duration_ms=300)
+                vad_filter=False
             )
+            text_segments = [s.text.strip() for s in segments if s.text and s.text.strip()]
         except Exception as file_err:
             print(f"[STT][WARN] Direct file transcribe failed ({file_err}), trying in-memory stream...")
             import io
@@ -126,13 +129,15 @@ async def transcribe_audio(audio: UploadFile = File(None), file: UploadFile = Fi
                 initial_prompt="لوحة سيارة عربية: دال ألف دال اثنين خمسة اثنين أربعة، ألف سين باء ٢١٧٥",
                 beam_size=5,
                 temperature=0.0,
-                vad_filter=True,
-                vad_parameters=dict(min_silence_duration_ms=300)
+                vad_filter=False
             )
+            text_segments = [s.text.strip() for s in segments if s.text and s.text.strip()]
 
-        text_segments = [s.text.strip() for s in segments if s.text.strip()]
+        print("[STT][TRANSCRIBE] model.transcribe() returned")
+        duration_ms = int((time.time() - start_time) * 1000)
+        print(f"[STT][TIMING] duration_ms={duration_ms}")
+
         recognized_text = " ".join(text_segments).strip()
-
         print(f'[STT][RESULT] text="{recognized_text}"')
         print("[STT][DONE] Transcription completed")
 
@@ -141,7 +146,8 @@ async def transcribe_audio(audio: UploadFile = File(None), file: UploadFile = Fi
             "text": recognized_text,
             "provider": "local-faster-whisper",
             "language": "ar",
-            "model": MODEL_NAME
+            "model": MODEL_NAME,
+            "processing_ms": duration_ms
         }
     except Exception as err:
         print(f"[STT][ERROR] Transcription exception: {err}")
