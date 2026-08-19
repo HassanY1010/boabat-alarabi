@@ -21,11 +21,13 @@ function logSttConfiguration() {
 
 async function transcribeAudioFile(filePath, originalFilename = 'speech.webm', mimeType = 'audio/webm') {
   if (!fs.existsSync(filePath)) {
+    console.error('[STT][ERROR] Audio file does not exist on disk:', filePath);
     throw new Error('Audio file does not exist on disk.');
   }
 
   const fileStats = fs.statSync(filePath);
   if (fileStats.size === 0) {
+    console.error('[STT][ERROR] Uploaded audio file is empty (0 bytes)');
     throw new Error('Uploaded audio file is empty (0 bytes).');
   }
 
@@ -34,78 +36,120 @@ async function transcribeAudioFile(filePath, originalFilename = 'speech.webm', m
   const filename = originalFilename || 'speech_chunk.webm';
   const serviceUrl = getPythonSttUrl();
 
-  console.log('[STT][NODE] Calling Python STT at', serviceUrl);
+  console.log(`[STT][REQUEST] Audio received size=${fileStats.size} bytes filename="${filename}" mime="${mimeType}"`);
+  console.log(`[STT][SERVICE_URL] ${serviceUrl}`);
 
-  try {
-    const formData = new FormData();
-    formData.append('audio', audioBlob, filename);
+  const maxAttempts = 3;
+  let lastError = null;
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => {
-      console.warn('[VOICE][STT][TIMEOUT] faster-whisper request timed out after 60s');
-      controller.abort();
-    }, 60000);
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      console.log(`[STT][FORWARD] Forwarding audio to faster-whisper (attempt ${attempt}/${maxAttempts})...`);
+      const formData = new FormData();
+      formData.append('audio', audioBlob, filename);
 
-    const response = await fetch(serviceUrl, {
-      method: 'POST',
-      body: formData,
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => {
+        console.warn('[VOICE][STT][TIMEOUT] faster-whisper request timed out after 60s');
+        controller.abort();
+      }, 60000);
 
-    console.log(`[STT][NODE] Python response status=${response.status}`);
+      const response = await fetch(serviceUrl, {
+        method: 'POST',
+        body: formData,
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
 
-    if (response.ok) {
-      const data = await response.json();
-      console.log('[STT][NODE] Python response body=', data);
+      console.log(`[STT][RESPONSE_STATUS] ${response.status}`);
 
-      if (data && data.success && typeof data.text === 'string') {
-        const text = data.text.trim();
-        console.log('[VOICE][STT] Response received from faster-whisper');
-        console.log('[VOICE][STT] Transcript: "' + text + '"');
-        return {
-          success: true,
-          text: text,
-          provider: 'local-faster-whisper',
-          language: 'ar',
-          model: data.model || process.env.WHISPER_MODEL || 'tiny'
-        };
-      } else {
-        console.warn('[STT][NODE] faster-whisper returned non-success:', data);
+      if (response.status === 502 || response.status === 503) {
+        const rawErr = await response.text();
+        console.log(`[STT][RESPONSE_BODY] HTTP ${response.status}: ${rawErr.slice(0, 200)}`);
+        console.warn(`[STT][ERROR] faster-whisper returned ${response.status}. Container may be waking up from cold start. Retrying in 2s...`);
+        if (attempt < maxAttempts) {
+          await new Promise(r => setTimeout(r, 2000));
+          continue;
+        }
         return {
           success: false,
-          error: (data && data.error) || 'STT transcription failed',
-          code: (data && data.code) || 'STT_TRANSCRIPTION_FAILED'
+          error: `faster-whisper service returned HTTP ${response.status} (Gateway/Service Unavailable).`,
+          code: 'STT_BAD_GATEWAY',
+          statusCode: response.status
         };
       }
-    } else {
-      const errText = await response.text();
-      console.warn('[STT][NODE] faster-whisper HTTP status error:', response.status, errText);
-      return {
-        success: false,
-        error: 'faster-whisper service returned HTTP ' + response.status,
-        code: 'STT_HTTP_ERROR',
-        statusCode: response.status
-      };
+
+      const rawText = await response.text();
+      console.log(`[STT][RESPONSE_BODY] ${rawText}`);
+
+      if (response.ok) {
+        let data;
+        try {
+          data = JSON.parse(rawText);
+        } catch (jsonErr) {
+          console.error('[STT][ERROR] Failed to parse JSON from faster-whisper:', jsonErr.message);
+          return {
+            success: false,
+            error: 'Invalid JSON response from STT service',
+            code: 'STT_INVALID_JSON',
+            statusCode: 500
+          };
+        }
+
+        if (data && data.success && typeof data.text === 'string') {
+          const text = data.text.trim();
+          console.log(`[VOICE][STT] Transcript: "${text}"`);
+          return {
+            success: true,
+            text: text,
+            provider: 'local-faster-whisper',
+            language: 'ar',
+            model: data.model || process.env.WHISPER_MODEL || 'tiny',
+            duration_ms: data.duration_ms || 0
+          };
+        } else {
+          console.warn('[STT][ERROR] faster-whisper returned non-success:', data);
+          return {
+            success: false,
+            error: (data && data.error) || 'STT transcription failed',
+            code: (data && data.code) || 'STT_TRANSCRIPTION_FAILED'
+          };
+        }
+      } else {
+        console.warn(`[STT][ERROR] faster-whisper HTTP error ${response.status}: ${rawText}`);
+        return {
+          success: false,
+          error: 'faster-whisper service returned HTTP ' + response.status,
+          code: 'STT_HTTP_ERROR',
+          statusCode: response.status
+        };
+      }
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        console.error('[STT][ERROR] Request aborted due to 60s timeout');
+        return {
+          success: false,
+          error: 'انتهت مهلة معالجة الصوت (60 ثانية).',
+          code: 'STT_TIMEOUT',
+          statusCode: 504
+        };
+      }
+      console.error(`[STT][ERROR] Attempt ${attempt} failed:`, err.message);
+      lastError = err;
+      if (attempt < maxAttempts) {
+        console.log(`[STT][RETRY] Waiting 2s before retry ${attempt + 1}...`);
+        await new Promise(r => setTimeout(r, 2000));
+      }
     }
-  } catch (err) {
-    if (err.name === 'AbortError') {
-      console.error('[VOICE][STT][TIMEOUT] Request aborted due to timeout');
-      return {
-        success: false,
-        error: 'انتهت مهلة معالجة الصوت (60 ثانية).',
-        code: 'STT_TIMEOUT',
-        statusCode: 504
-      };
-    }
-    console.error('[STT][BACKEND] Connection to faster-whisper failed:', err.message);
-    return {
-      success: false,
-      error: 'تعذر الاتصال بخدمة faster-whisper المحلية على (' + serviceUrl + '). يرجى التأكد من تشغيل stt_service.',
-      code: 'STT_SERVICE_UNAVAILABLE',
-      statusCode: 503
-    };
   }
+
+  console.error('[STT][ERROR] All connection attempts to faster-whisper failed:', lastError ? lastError.message : 'Unknown');
+  return {
+    success: false,
+    error: 'تعذر الاتصال بخدمة faster-whisper على (' + serviceUrl + '). يرجى التأكد من تشغيل الخدمة.',
+    code: 'STT_SERVICE_UNAVAILABLE',
+    statusCode: 503
+  };
 }
 
 module.exports = {
