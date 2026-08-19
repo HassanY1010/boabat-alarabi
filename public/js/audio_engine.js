@@ -1,7 +1,13 @@
 ﻿/**
- * Boabat Al-Arabi - Real-Time MediaRecorder Audio Engine & STT Pipeline
- * Clean Single-Lifecycle Architecture with timeslice recording and queueing
+ * Boabat Al-Arabi - Enterprise MediaRecorder Audio Engine & STT Pipeline
+ * Sequential Full-Header WebM Recording Cycles (No timeslice slicing)
+ * Architecture:
+ * getUserMedia() -> create MediaRecorder -> record 3500ms -> recorder.stop()
+ * -> Complete WebM Blob with valid Header -> POST /api/v1/speech/transcribe
+ * -> faster-whisper STT -> app.processSpokenText() -> Next Recording Cycle
  */
+
+const VOICE_CHUNK_DURATION_MS = window.VOICE_CHUNK_DURATION_MS || 3500;
 
 class AudioEngine {
   constructor(onSpokenText, onTranscriptUpdate, onStatusChange) {
@@ -11,11 +17,9 @@ class AudioEngine {
 
     this.isListening = false;
     this.mediaStream = null;
-    this.mediaRecorder = null;
+    this.activeRecorder = null;
     this.sessionToken = 0;
-    this.chunkSequence = 0;
-    this.uploadQueue = [];
-    this.isUploading = false;
+    this.cycleTimer = null;
     this.animFrameId = null;
 
     this.canvas = document.getElementById('audioVisualizerCanvas');
@@ -34,22 +38,34 @@ class AudioEngine {
     }
   }
 
+  getOptimalMimeType() {
+    if (typeof MediaRecorder === 'undefined') return '';
+    const candidates = [
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/mp4',
+      'audio/ogg;codecs=opus',
+      'audio/wav'
+    ];
+    for (const type of candidates) {
+      if (MediaRecorder.isTypeSupported(type)) {
+        return type;
+      }
+    }
+    return '';
+  }
+
   async startListening() {
     if (this.isListening) return;
 
-    // Clean up any stale recorder or stream before starting
     this.cleanup();
-
     this.isListening = true;
     const currentSession = ++this.sessionToken;
-    this.chunkSequence = 0;
-    this.uploadQueue = [];
-    this.isUploading = false;
 
     console.log('[VOICE][SESSION] Started');
     this.updateStatus('🎙️ جاري التسجيل والاستماع... تفضل بنطق لوحة السيارة');
 
-    // 1. Request microphone stream
+    // 1. Acquire real microphone stream
     try {
       this.mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -70,71 +86,106 @@ class AudioEngine {
       return;
     }
 
-    // 2. Select optimal audio MIME type
-    let mimeType = 'audio/webm;codecs=opus';
-    if (!MediaRecorder.isTypeSupported(mimeType)) {
-      if (MediaRecorder.isTypeSupported('audio/webm')) mimeType = 'audio/webm';
-      else if (MediaRecorder.isTypeSupported('audio/mp4')) mimeType = 'audio/mp4';
-      else mimeType = '';
+    this.startSimulatedVisualizer();
+
+    // 2. Start initial discrete recording cycle
+    this.startRecordingCycle(currentSession);
+  }
+
+  startRecordingCycle(sessionToken) {
+    if (!this.isListening || this.sessionToken !== sessionToken || !this.mediaStream) {
+      return;
     }
+
+    const mimeType = this.getOptimalMimeType();
+    let recorder;
 
     try {
-      this.mediaRecorder = new MediaRecorder(this.mediaStream, mimeType ? { mimeType } : undefined);
+      recorder = new MediaRecorder(this.mediaStream, mimeType ? { mimeType } : undefined);
     } catch (e) {
-      this.mediaRecorder = new MediaRecorder(this.mediaStream);
+      recorder = new MediaRecorder(this.mediaStream);
     }
 
+    this.activeRecorder = recorder;
+    const cycleChunks = [];
+    const actualMime = recorder.mimeType || mimeType || 'audio/webm';
+
     console.log('[VOICE][RECORDER] Created');
+    console.log('[VOICE][RECORDER] Config: mimeType="' + actualMime + '", duration=' + VOICE_CHUNK_DURATION_MS + 'ms');
 
-    // 3. ondataavailable handler (fires every ~3.2 seconds due to start(3200))
-    this.mediaRecorder.ondataavailable = (event) => {
-      if (this.sessionToken !== currentSession || !this.isListening) return;
-
+    recorder.ondataavailable = (event) => {
       if (event.data && event.data.size > 0) {
-        console.log('[VOICE][RECORDER] dataavailable size=' + event.data.size);
-
-        if (event.data.size > 1500) {
-          const chunkId = ++this.chunkSequence;
-          this.uploadQueue.push({ chunkId, blob: event.data, token: currentSession });
-          this.processUploadQueue();
-        }
+        cycleChunks.push(event.data);
       }
     };
 
-    this.mediaRecorder.onstop = () => {
-      console.log('[VOICE][RECORDER] stop()');
+    recorder.onstop = async () => {
+      console.log('[VOICE][RECORDER] Recording stopped');
+
+      if (!this.isListening || this.sessionToken !== sessionToken) {
+        return;
+      }
+
+      if (cycleChunks.length === 0) {
+        console.warn('[VOICE][RECORDER] No audio chunks collected');
+        this.scheduleNextCycle(sessionToken);
+        return;
+      }
+
+      // Create a standalone WebM Blob with complete file header
+      const completeAudioBlob = new Blob(cycleChunks, { type: actualMime });
+      console.log('[VOICE][RECORDER] Complete standalone Blob created (' + completeAudioBlob.size + ' bytes)');
+
+      if (completeAudioBlob.size > 1200) {
+        await this.uploadAndTranscribeBlob(completeAudioBlob, sessionToken);
+      }
+
+      // Chain next recording cycle if session is still active
+      if (this.isListening && this.sessionToken === sessionToken) {
+        console.log('[VOICE][RECORDER] Starting next recording cycle');
+        this.startRecordingCycle(sessionToken);
+      }
     };
 
-    // 4. Start recording in continuous stream with 3200ms timeslice (NO repeated stop() calls)
+    // Start recording whole chunk (without timeslice, so onstop produces complete WebM file)
     try {
-      this.mediaRecorder.start(3200);
-      console.log('[VOICE][RECORDER] start()');
+      recorder.start();
+      console.log('[VOICE][RECORDER] Recording started');
     } catch (err) {
-      console.error('[VOICE][ERROR] MediaRecorder start failed:', err);
+      console.error('[VOICE][ERROR] Recorder start failed:', err);
       this.stopListening();
       return;
     }
 
-    this.startSimulatedVisualizer();
+    // Schedule stop after configured duration
+    this.cycleTimer = setTimeout(() => {
+      if (this.isListening && this.sessionToken === sessionToken && recorder.state === 'recording') {
+        try {
+          recorder.stop();
+        } catch (e) {}
+      }
+    }, VOICE_CHUNK_DURATION_MS);
   }
 
-  async processUploadQueue() {
-    if (this.isUploading || this.uploadQueue.length === 0) return;
-
-    const item = this.uploadQueue.shift();
-    if (!item || item.token !== this.sessionToken) {
-      this.processUploadQueue();
-      return;
+  scheduleNextCycle(sessionToken) {
+    if (this.isListening && this.sessionToken === sessionToken) {
+      setTimeout(() => {
+        if (this.isListening && this.sessionToken === sessionToken) {
+          console.log('[VOICE][RECORDER] Starting next recording cycle');
+          this.startRecordingCycle(sessionToken);
+        }
+      }, 200);
     }
+  }
 
-    this.isUploading = true;
-    const { chunkId, blob, token } = item;
+  async uploadAndTranscribeBlob(audioBlob, sessionToken) {
+    if (!this.isListening || this.sessionToken !== sessionToken) return;
 
-    console.log('[VOICE][STT] Uploading chunk #' + chunkId + ' size=' + blob.size);
-    this.updateStatus('⬆️ جاري إرسال المقطع الصوتي #' + chunkId + '...');
+    console.log('[VOICE][STT] Uploading audio (' + audioBlob.size + ' bytes, type=' + audioBlob.type + ')');
+    this.updateStatus('⬆️ جاري إرسال الصوت وتحويله إلى نص...');
 
     const formData = new FormData();
-    formData.append('audio', blob, 'speech_chunk_' + chunkId + '.webm');
+    formData.append('audio', audioBlob, 'speech_recording.webm');
 
     try {
       const res = await fetch('/api/v1/speech/transcribe', {
@@ -142,18 +193,14 @@ class AudioEngine {
         body: formData
       });
 
-      if (token !== this.sessionToken) {
-        this.isUploading = false;
-        this.processUploadQueue();
-        return;
-      }
+      if (!this.isListening || this.sessionToken !== sessionToken) return;
 
       const data = await res.json();
-      console.log('[VOICE][STT] Response received chunk #' + chunkId, data);
+      console.log('[VOICE][STT] Response received:', data);
 
       if (data.success && data.text && data.text.trim().length > 0) {
         const recognizedTranscript = data.text.trim();
-        console.log('[VOICE][STT] Transcript chunk #' + chunkId + ': "' + recognizedTranscript + '"');
+        console.log('[VOICE][STT] Transcript: "' + recognizedTranscript + '"');
         console.log('[VOICE][PIPELINE] processSpokenText()');
         this.updateStatus('🔎 تم التعرف: "' + recognizedTranscript + '"');
 
@@ -164,26 +211,24 @@ class AudioEngine {
           this.onSpokenText(recognizedTranscript);
         }
       } else {
-        if (this.isListening) {
+        if (data.error) {
+          console.warn('[VOICE][STT] STT Notice:', data.error);
+        }
+        if (this.isListening && this.sessionToken === sessionToken) {
           this.updateStatus('🎙️ يستمع الآن... تفضل بنطق لوحة السيارة بشكل طبيعي');
         }
       }
     } catch (err) {
-      console.error('[VOICE][STT] Chunk #' + chunkId + ' upload failed:', err.message);
-      if (this.isListening) {
-        this.updateStatus('⚠️ خطأ في معالجة الصوت، يستمر الاستماع...');
+      console.error('[VOICE][STT] Upload error:', err.message);
+      if (this.isListening && this.sessionToken === sessionToken) {
+        this.updateStatus('⚠️ خطأ في الاتصال، يستمر الاستماع...');
       }
-    } finally {
-      this.isUploading = false;
-      this.processUploadQueue();
     }
   }
 
   stopListening() {
     this.isListening = false;
     this.sessionToken++;
-    this.uploadQueue = [];
-    this.isUploading = false;
 
     this.cleanup();
 
@@ -198,15 +243,20 @@ class AudioEngine {
   }
 
   cleanup() {
-    if (this.mediaRecorder) {
-      if (this.mediaRecorder.state !== 'inactive') {
+    if (this.cycleTimer) {
+      clearTimeout(this.cycleTimer);
+      this.cycleTimer = null;
+    }
+
+    if (this.activeRecorder) {
+      if (this.activeRecorder.state !== 'inactive') {
         try {
-          this.mediaRecorder.stop();
+          this.activeRecorder.stop();
         } catch (e) {}
       }
-      this.mediaRecorder.ondataavailable = null;
-      this.mediaRecorder.onstop = null;
-      this.mediaRecorder = null;
+      this.activeRecorder.ondataavailable = null;
+      this.activeRecorder.onstop = null;
+      this.activeRecorder = null;
     }
 
     if (this.mediaStream) {
