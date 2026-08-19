@@ -170,9 +170,9 @@ class AppController {
       this.runBenchmarkBtn.addEventListener('click', () => this.runBenchmark());
     }
 
-    // Initialize Audio Engine
+    // Initialize Audio Engine with unified processSpokenText pipeline
     this.audioEngine = new window.AudioEngine(
-      (plateCandidate, rawTranscript) => this.handlePlateCandidateDetected(plateCandidate, rawTranscript),
+      (activeText, latestChunk, isFinal) => this.processSpokenText(activeText, latestChunk),
       (transcript) => this.updateLiveTranscript(transcript)
     );
   }
@@ -407,9 +407,18 @@ class AppController {
     }
   }
 
-  processSpokenText(phrase) {
+  processSpokenText(phrase, chunk = null) {
+    if (!phrase) return;
     this.updateLiveTranscript(phrase);
-    const candidates = window.clientPlateParser.parsePlateTranscript(phrase);
+
+    // 1. Parse active accumulated phrase
+    let candidates = window.clientPlateParser.parsePlateTranscript(phrase);
+
+    // 2. Fallback: Parse latest chunk if phrase had prior noise
+    if (candidates.length === 0 && chunk && chunk !== phrase) {
+      candidates = window.clientPlateParser.parsePlateTranscript(chunk);
+    }
+
     if (candidates.length > 0) {
       candidates.forEach(c => this.handlePlateCandidateDetected(c, phrase));
     }

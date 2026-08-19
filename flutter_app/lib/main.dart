@@ -576,12 +576,13 @@ class _ScanMainScreenState extends State<ScanMainScreen> {
         },
         onResult: (result) {
           final words = result.recognizedWords;
+          debugPrint('[VOICE][RAW] recognizedWords=$words | finalResult=${result.finalResult}');
           if (words.isNotEmpty) {
             setState(() {
               _liveSpokenText = words;
             });
 
-            // Parse & Validate Plate with Confidence Engine
+            // Parse & Validate Plate with Confidence Engine directly
             if (result.finalResult || words.split(' ').length >= 3) {
               _validateAndProcessSpeech(words);
             }

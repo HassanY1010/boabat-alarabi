@@ -1,10 +1,10 @@
 /**
- * Boabat Al-Arabi - Real-Time Audio Engine, Visualizer & Speech Recognizer
+ * Boabat Al-Arabi - Real-Time Audio Engine, Real Mic Visualizer & Speech Recognizer
  */
 
 class AudioEngine {
-  constructor(onPlateDetected, onTranscriptUpdate) {
-    this.onPlateDetected = onPlateDetected;
+  constructor(onSpokenText, onTranscriptUpdate) {
+    this.onSpokenText = onSpokenText; // Called directly with recognized speech
     this.onTranscriptUpdate = onTranscriptUpdate;
 
     this.isListening = false;
@@ -24,7 +24,7 @@ class AudioEngine {
   initSpeechRecognition() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      console.warn('Web Speech API is not supported in this browser. Fallback mode enabled.');
+      console.warn('[VOICE] Web Speech API is not supported in this browser.');
       return;
     }
 
@@ -34,69 +34,89 @@ class AudioEngine {
     this.recognition.lang = document.getElementById('settingLanguage')?.value || 'ar-EG';
     this.recognition.maxAlternatives = 3;
 
+    this.recognition.onstart = () => {
+      console.log('[VOICE] onstart - SpeechRecognition active and listening');
+    };
+
+    this.recognition.onaudiostart = () => {
+      console.log('[VOICE] onaudiostart - Audio capturing started');
+    };
+
+    this.recognition.onsoundstart = () => {
+      console.log('[VOICE] onsoundstart - Sound detected by microphone');
+    };
+
+    this.recognition.onspeechstart = () => {
+      console.log('[VOICE] onspeechstart - Speech detected');
+    };
+
     this.recognition.onresult = (event) => {
+      console.log('[VOICE][RAW] onresult fired | resultIndex:', event.resultIndex, '| results.length:', event.results.length);
+
       let interimTranscript = '';
       let finalTranscript = '';
+      let latestChunk = '';
 
       for (let i = 0; i < event.results.length; ++i) {
         const item = event.results[i][0];
         if (item && item.transcript) {
+          const text = item.transcript.trim();
           if (event.results[i].isFinal) {
-            finalTranscript += ' ' + item.transcript.trim();
+            finalTranscript += ' ' + text;
           } else {
-            interimTranscript += ' ' + item.transcript.trim();
+            interimTranscript += ' ' + text;
+          }
+          if (i >= event.resultIndex) {
+            latestChunk = text;
           }
         }
       }
 
       const activeText = (finalTranscript + ' ' + interimTranscript).trim();
-      const latestChunk = (event.results[event.results.length - 1] && event.results[event.results.length - 1][0]) ? event.results[event.results.length - 1][0].transcript.trim() : activeText;
+      const isFinal = event.results[event.results.length - 1]?.isFinal || false;
+
+      console.log(`[VOICE][RAW] Transcript: "${activeText}" | isFinal: ${isFinal} | latestChunk: "${latestChunk}"`);
 
       if (activeText) {
-        console.log('[VOICE] Speech Received:', activeText);
-        if (finalTranscript) {
-          console.log('[VOICE] Final Speech:', finalTranscript.trim());
-        }
         if (this.onTranscriptUpdate) {
           this.onTranscriptUpdate(activeText);
         }
-
-        // 1. Try parsing full active accumulated text
-        let candidates = window.clientPlateParser.parsePlateTranscript(activeText);
-        
-        // 2. Fallback: try parsing the latest speech chunk directly
-        if (candidates.length === 0 && latestChunk) {
-          candidates = window.clientPlateParser.parsePlateTranscript(latestChunk);
-        }
-
-        if (candidates.length > 0 && this.onPlateDetected) {
-          candidates.forEach(c => this.onPlateDetected(c, activeText));
+        if (this.onSpokenText) {
+          this.onSpokenText(activeText, latestChunk, isFinal);
         }
       }
     };
 
+    this.recognition.onspeechend = () => {
+      console.log('[VOICE] onspeechend - Speech chunk finished');
+    };
+
+    this.recognition.onaudioend = () => {
+      console.log('[VOICE] onaudioend - Audio capture cycle ended');
+    };
+
     this.recognition.onerror = (event) => {
-      console.warn('[VOICE] Speech recognition error:', event.error);
-      if (this.isListening && event.error === 'no-speech') {
-        // Just keep listening
-        return;
+      console.error('[VOICE][ERROR]', event.error, event.message || '');
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        alert('يرجى السماح بالوصول إلى الميكروفون في المتصفح لبدء الاستماع الصوتي.');
       }
-      if (this.isListening && event.error !== 'aborted') {
+      if (this.isListening && event.error !== 'aborted' && event.error !== 'not-allowed') {
         setTimeout(() => {
           if (this.isListening) {
             try { this.recognition.start(); } catch (e) {}
           }
-        }, 400);
+        }, 300);
       }
     };
 
     this.recognition.onend = () => {
+      console.log('[VOICE] onend - Speech recognition stopped');
       if (this.isListening) {
         setTimeout(() => {
           if (this.isListening) {
             try { this.recognition.start(); } catch (err) {}
           }
-        }, 200);
+        }, 150);
       }
     };
   }
@@ -107,18 +127,34 @@ class AudioEngine {
     console.log('[VOICE] Session Started');
     console.log('[VOICE] Microphone Listening');
 
-    // Start Web Speech API with selected language
+    // 1. Request real microphone hardware stream
+    try {
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        this.mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (AudioContextClass) {
+          this.audioContext = new AudioContextClass();
+          const source = this.audioContext.createMediaStreamSource(this.mediaStream);
+          this.analyser = this.audioContext.createAnalyser();
+          this.analyser.fftSize = 64;
+          source.connect(this.analyser);
+          this.drawVisualizer();
+        }
+      }
+    } catch (err) {
+      console.warn('[VOICE] Could not access real microphone stream for visualizer:', err);
+      this.startSimulatedVisualizer();
+    }
+
+    // 2. Start Web Speech API with selected language
     if (this.recognition) {
       this.recognition.lang = document.getElementById('settingLanguage')?.value || 'ar-EG';
       try {
         this.recognition.start();
       } catch (e) {
-        console.warn('Recognition start exception:', e);
+        console.warn('[VOICE] Recognition start error (might already be running):', e);
       }
     }
-
-    // Start Simulated Visualizer without locking mic hardware
-    this.startSimulatedVisualizer();
   }
 
   stopListening() {
@@ -131,6 +167,11 @@ class AudioEngine {
     if (this.mediaStream) {
       this.mediaStream.getTracks().forEach(track => track.stop());
       this.mediaStream = null;
+    }
+
+    if (this.audioContext && this.audioContext.state !== 'closed') {
+      try { this.audioContext.close(); } catch (e) {}
+      this.audioContext = null;
     }
 
     if (this.animFrameId) {
@@ -155,15 +196,13 @@ class AudioEngine {
     }
     const avg = sum / bufferLength;
 
-    // Update level badge
     if (this.audioBadge) {
-      if (avg > 70) this.audioBadge.textContent = 'قوي 99%';
-      else if (avg > 30) this.audioBadge.textContent = 'متوسط';
-      else if (avg > 5) this.audioBadge.textContent = 'هادئ';
+      if (avg > 50) this.audioBadge.textContent = 'قوي 99%';
+      else if (avg > 15) this.audioBadge.textContent = 'متوسط';
+      else if (avg > 2) this.audioBadge.textContent = 'هادئ';
       else this.audioBadge.textContent = 'صامت';
     }
 
-    // Draw bars
     const width = this.canvas.width;
     const height = this.canvas.height;
     this.canvasCtx.clearRect(0, 0, width, height);
@@ -219,3 +258,4 @@ class AudioEngine {
 }
 
 window.AudioEngine = AudioEngine;
+
